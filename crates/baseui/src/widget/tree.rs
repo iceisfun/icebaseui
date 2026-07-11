@@ -28,6 +28,16 @@ pub struct TreeNode {
     icon_color: Option<Color>,
     children: Vec<TreeNode>,
     expanded: bool,
+    actions: Vec<TreeAction>,
+}
+
+/// A right-floating, toggleable icon on a tree row (Blender-style visibility /
+/// render toggles): shown in `color` when enabled, greyed out when disabled.
+#[derive(Clone, Copy)]
+struct TreeAction {
+    icon: char,
+    color: Color,
+    enabled: bool,
 }
 
 impl TreeNode {
@@ -39,6 +49,7 @@ impl TreeNode {
             icon_color: None,
             children: Vec::new(),
             expanded: false,
+            actions: Vec::new(),
         }
     }
 
@@ -50,12 +61,25 @@ impl TreeNode {
             icon_color: None,
             children,
             expanded: true,
+            actions: Vec::new(),
         }
     }
 
     /// Set the type-icon color (a colored dot beside the label).
     pub fn icon_color(mut self, color: Color) -> Self {
         self.icon_color = Some(color);
+        self
+    }
+
+    /// Add a right-floating toggle icon, starting `enabled` (colored). Clicking
+    /// it toggles between the given color (on) and grey (off). Multiple actions
+    /// stack from the right edge.
+    pub fn action(mut self, icon: crate::icon::Icon, color: Color, enabled: bool) -> Self {
+        self.actions.push(TreeAction {
+            icon: icon.ch(),
+            color,
+            enabled,
+        });
         self
     }
 
@@ -90,6 +114,7 @@ struct FlatRow {
     icon_color: Option<Color>,
     has_children: bool,
     expanded: bool,
+    actions: Vec<TreeAction>,
 }
 
 fn flatten(nodes: &[TreeNode], depth: usize, out: &mut Vec<FlatRow>) {
@@ -101,11 +126,20 @@ fn flatten(nodes: &[TreeNode], depth: usize, out: &mut Vec<FlatRow>) {
             icon_color: node.icon_color,
             has_children: node.has_children(),
             expanded: node.expanded,
+            actions: node.actions.clone(),
         });
         if node.expanded {
             flatten(&node.children, depth + 1, out);
         }
     }
+}
+
+/// Width of one right-floating action-icon slot, in logical pixels.
+const ACTION_SLOT: f32 = 22.0;
+
+/// The x of the leftmost action slot for a row with `n` actions.
+fn actions_start_x(bounds: Rect, pad: f32, n: usize) -> f32 {
+    bounds.right() - pad - n as f32 * ACTION_SLOT
 }
 
 /// Callback invoked with a node's label when it is selected.
@@ -145,6 +179,17 @@ impl TreeView {
         for root in &mut self.roots {
             if let Some(node) = root.find_mut(id) {
                 node.expanded = !node.expanded;
+                return;
+            }
+        }
+    }
+
+    fn toggle_action(&mut self, id: Id, index: usize) {
+        for root in &mut self.roots {
+            if let Some(node) = root.find_mut(id) {
+                if let Some(action) = node.actions.get_mut(index) {
+                    action.enabled = !action.enabled;
+                }
                 return;
             }
         }
@@ -216,6 +261,27 @@ impl Widget for TreeView {
                 self.font_size,
                 p.text,
             );
+
+            // Right-floating action icons: colored when enabled, grey when off.
+            if !row.actions.is_empty() {
+                let start = actions_start_x(bounds, cx.theme.spacing.sm, row.actions.len());
+                for (k, action) in row.actions.iter().enumerate() {
+                    let slot_left = start + k as f32 * ACTION_SLOT;
+                    let gw = cx.fonts.char_advance(action.icon, self.font_size, FontId::Ui);
+                    let gx = slot_left + (ACTION_SLOT - gw) * 0.5;
+                    let color = if action.enabled {
+                        action.color
+                    } else {
+                        p.text_muted
+                    };
+                    scene.text(
+                        Point::new(gx, text_y),
+                        action.icon.to_string(),
+                        self.font_size,
+                        color,
+                    );
+                }
+            }
         }
     }
 
@@ -240,7 +306,20 @@ impl Widget for TreeView {
                 };
                 let row_depth = self.rows[i].depth;
                 let has_children = self.rows[i].has_children;
+                let n_actions = self.rows[i].actions.len();
                 let id = self.rows[i].id;
+
+                // Right-floating action icons take priority.
+                if n_actions > 0 {
+                    let start = actions_start_x(bounds, cx.theme.spacing.sm, n_actions);
+                    if pos.x >= start {
+                        let k = ((pos.x - start) / ACTION_SLOT) as usize;
+                        if k < n_actions {
+                            self.toggle_action(id, k);
+                            return;
+                        }
+                    }
+                }
 
                 // Arrow hit-box toggles expansion; anywhere else selects.
                 let arrow_x = bounds.left() + cx.theme.spacing.sm + row_depth as f32 * INDENT;

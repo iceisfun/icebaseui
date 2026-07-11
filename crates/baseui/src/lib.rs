@@ -28,6 +28,7 @@
 
 pub mod app;
 pub mod event;
+pub mod icon;
 pub mod layout;
 pub mod render;
 pub mod text;
@@ -35,10 +36,11 @@ pub mod theme;
 pub mod widget;
 
 pub use app::{App, Frame, WindowConfig};
+pub use icon::Icon;
 pub use theme::Theme;
 pub use widget::{
     Button, Checkbox, Column, DragValue, HexView, Label, PropGroup, PropertyView, Row, ScrollArea,
-    Slider, TreeNode, TreeView, Widget,
+    Slider, Split, TabView, TreeNode, TreeView, Widget,
 };
 
 // Re-export the dependency-free core so downstream code has one import root.

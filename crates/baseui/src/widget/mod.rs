@@ -27,7 +27,9 @@ mod label;
 mod property;
 mod scroll;
 mod slider;
+mod split;
 mod stack;
+mod tabs;
 mod tree;
 
 pub use button::Button;
@@ -38,7 +40,9 @@ pub use label::Label;
 pub use property::{PropGroup, PropertyView};
 pub use scroll::ScrollArea;
 pub use slider::Slider;
+pub use split::Split;
 pub use stack::{Column, Row};
+pub use tabs::TabView;
 pub use tree::{TreeNode, TreeView};
 
 use baseui_core::Size;
