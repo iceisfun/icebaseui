@@ -351,33 +351,12 @@ impl TextArea {
         w * digits as f32 + 16.0 * crate::text::scale()
     }
 
-    /// Cumulative x offsets for every column boundary of `line` (len + 1 entries).
-    /// One prefix-sum pass gives the caret, hit-testing, and every run's x.
-    fn advances(&self, cx_fonts: &crate::text::Fonts, line: &str) -> Vec<f32> {
-        let mut out = Vec::with_capacity(line.chars().count() + 1);
-        let mut x = 0.0;
-        out.push(0.0);
-        for ch in line.chars() {
-            x += cx_fonts.char_advance(ch, self.font_size, self.font);
-            out.push(x);
-        }
-        out
-    }
-
-    /// Column nearest to `x` (relative to the text origin) on `line`.
-    fn col_at(&self, cx_fonts: &crate::text::Fonts, line: usize, x: f32) -> usize {
-        let Some(text) = self.lines.get(line) else {
-            return 0;
-        };
-        let mut acc = 0.0;
-        for (i, ch) in text.chars().enumerate() {
-            let adv = cx_fonts.char_advance(ch, self.font_size, self.font);
-            if acc + adv * 0.5 > x {
-                return i;
-            }
-            acc += adv;
-        }
-        text.chars().count()
+    /// Lay out one line: cumulative x offsets for every column boundary. The
+    /// caret, hit-testing, selection rects, and every coloured run's x are all
+    /// lookups on this — see [`crate::text::Line`].
+    fn line(&self, cx_fonts: &crate::text::Fonts, index: usize) -> crate::text::Line {
+        let text = self.lines.get(index).map(String::as_str).unwrap_or("");
+        cx_fonts.layout_line(text, self.font_size, self.font)
     }
 
     /// The (line, col) under a pointer position.
@@ -385,9 +364,10 @@ impl TextArea {
         let line_h = self.line_height(cx_fonts);
         let gutter = self.gutter_width(cx_fonts);
         let y = pos.y - bounds.top() + self.scroll_y;
-        let line = ((y / line_h).floor().max(0.0) as usize).min(self.lines.len().saturating_sub(1));
+        let index =
+            ((y / line_h).floor().max(0.0) as usize).min(self.lines.len().saturating_sub(1));
         let x = pos.x - bounds.left() - gutter + self.scroll_x;
-        (line, self.col_at(cx_fonts, line, x.max(0.0)))
+        (index, self.line(cx_fonts, index).col_at(x.max(0.0)))
     }
 
     // -- editing keys ------------------------------------------------------
@@ -543,11 +523,7 @@ impl Widget for TextArea {
         let max_scroll_y = ((self.lines.len() as f32 * line_h) - bounds.height()).max(0.0);
         self.scroll_y = self.scroll_y.clamp(0.0, max_scroll_y);
 
-        let caret_line = self.lines[self.caret.0.min(self.lines.len() - 1)].clone();
-        let caret_adv = self.advances(cx.fonts, &caret_line);
-        let caret_x = *caret_adv
-            .get(self.caret.1)
-            .unwrap_or_else(|| caret_adv.last().unwrap());
+        let caret_x = self.line(cx.fonts, self.caret.0).x_of(self.caret.1);
         if caret_x - self.scroll_x > view_w - 8.0 * s {
             self.scroll_x = caret_x - view_w + 8.0 * s;
         }
@@ -566,9 +542,9 @@ impl Widget for TextArea {
 
         for i in first..last {
             let y = bounds.top() + i as f32 * line_h - self.scroll_y;
-            let line = &self.lines[i];
-            let adv = self.advances(cx.fonts, line);
-            let len = line.chars().count();
+            let text = self.lines[i].clone();
+            let line = cx.fonts.layout_line(&text, self.font_size, self.font);
+            let len = line.len();
 
             // Current-line highlight.
             if focused && i == self.caret.0 && selection.is_none() {
@@ -583,8 +559,7 @@ impl Widget for TextArea {
                 if i >= start.0 && i <= end.0 {
                     let c0 = if i == start.0 { start.1 } else { 0 };
                     let c1 = if i == end.0 { end.1 } else { len };
-                    let x0 = adv[c0.min(len)];
-                    let x1 = adv[c1.min(len)];
+                    let (x0, x1) = line.span(c0.min(len), c1.min(len));
                     // A selected newline shows as a sliver past the last glyph.
                     let w = if i < end.0 {
                         (x1 - x0).max(0.0) + 4.0 * s
@@ -602,16 +577,16 @@ impl Widget for TextArea {
             let spans = self
                 .highlighter
                 .as_ref()
-                .map(|h| h(line))
+                .map(|h| h(&text))
                 .unwrap_or_default();
             for (c0, c1, color) in runs(len, &spans, p.text) {
-                let text: String = line.chars().skip(c0).take(c1 - c0).collect();
-                if text.trim().is_empty() && spans.is_empty() {
+                let run: String = text.chars().skip(c0).take(c1 - c0).collect();
+                if run.trim().is_empty() && spans.is_empty() {
                     continue;
                 }
                 scene.text_font(
-                    Point::new(text_left + adv[c0] - self.scroll_x, y),
-                    text,
+                    Point::new(text_left + line.x_of(c0) - self.scroll_x, y),
+                    run,
                     self.font_size,
                     color,
                     self.font,
@@ -620,8 +595,7 @@ impl Widget for TextArea {
 
             // Diagnostics: a wavy underline under the range.
             for d in self.diagnostics.iter().filter(|d| d.line == i) {
-                let x0 = adv[d.start.min(len)];
-                let x1 = adv[d.end.min(len)];
+                let (x0, x1) = line.span(d.start.min(len), d.end.min(len));
                 if x1 > x0 {
                     scene.squiggle(
                         Rect::from_xywh(

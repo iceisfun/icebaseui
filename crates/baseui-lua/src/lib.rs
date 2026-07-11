@@ -147,6 +147,40 @@ fn optional_color(table: &Table, key: &str) -> Option<Color> {
         })
 }
 
+/// Parse a Lua font name into a `FontId`: `"ui"` (the default), `"mono"`, or
+/// `"icon:N"`. An unknown name is an error rather than a silent fallback — a
+/// script measuring in the wrong font produces layout that is subtly, not
+/// obviously, wrong.
+fn font_id(name: Option<&str>) -> mlua::Result<baseui::text::FontId> {
+    use baseui::text::FontId;
+    let Some(name) = name else {
+        return Ok(FontId::Ui);
+    };
+    match name {
+        "ui" => Ok(FontId::Ui),
+        "mono" => Ok(FontId::Mono),
+        other => match other.strip_prefix("icon:") {
+            Some(n) => n
+                .parse::<u16>()
+                .map(FontId::Icon)
+                .map_err(|_| mlua::Error::runtime(format!("bad icon font index: {other:?}"))),
+            None => Err(mlua::Error::runtime(format!(
+                "unknown font {other:?} (expected \"ui\", \"mono\", or \"icon:N\")"
+            ))),
+        },
+    }
+}
+
+/// The loaded fonts, or a clear error. Measurement before the app has started
+/// has no answer; returning zeros would silently corrupt a script's layout.
+fn require_fonts() -> mlua::Result<std::rc::Rc<baseui::text::Fonts>> {
+    baseui::text::fonts().ok_or_else(|| {
+        mlua::Error::runtime(
+            "fonts are not loaded yet (measure from a command or event, not at script top level)",
+        )
+    })
+}
+
 /// Install the `baseui` global table.
 fn install(lua: &Lua) -> mlua::Result<()> {
     let root = lua.create_table()?;
@@ -271,6 +305,15 @@ fn install(lua: &Lua) -> mlua::Result<()> {
     root.set("status", status)?;
 
     // -- baseui.text --------------------------------------------------------
+    //
+    // The full measurement API, not just the zoom knob. A script that draws (a
+    // custom status item, a generated label, a padded table column) has to be
+    // able to ask how big text *is* — otherwise it can only guess, and guessed
+    // layout is what makes scripted UI look broken.
+    //
+    // Every function takes the font as a string: "ui" (default), "mono", or
+    // "icon:N". Sizes and results are logical pixels, with the global text scale
+    // already applied — the same numbers the renderer positions glyphs by.
     let text = lua.create_table()?;
     text.set(
         "set_scale",
@@ -283,6 +326,98 @@ fn install(lua: &Lua) -> mlua::Result<()> {
         "scale",
         lua.create_function(|_, ()| Ok(baseui::text::scale()))?,
     )?;
+
+    // measure(text, size, font?) -> {width=, height=}
+    text.set(
+        "measure",
+        lua.create_function(|lua, (s, size, font): (String, f32, Option<String>)| {
+            let fonts = require_fonts()?;
+            let size_out = fonts.measure(&s, size, font_id(font.as_deref())?);
+            let t = lua.create_table()?;
+            t.set("width", size_out.width)?;
+            t.set("height", size_out.height)?;
+            Ok(t)
+        })?,
+    )?;
+
+    // width(text, size, font?) -> number   (single line)
+    text.set(
+        "width",
+        lua.create_function(|_, (s, size, font): (String, f32, Option<String>)| {
+            Ok(require_fonts()?.width(&s, size, font_id(font.as_deref())?))
+        })?,
+    )?;
+
+    // metrics(size, font?) -> {ascent=, descent=, line_gap=, height=}
+    text.set(
+        "metrics",
+        lua.create_function(|lua, (size, font): (f32, Option<String>)| {
+            let m = require_fonts()?.metrics(size, font_id(font.as_deref())?);
+            let t = lua.create_table()?;
+            t.set("ascent", m.ascent)?;
+            t.set("descent", m.descent)?;
+            t.set("line_gap", m.line_gap)?;
+            t.set("height", m.height)?;
+            Ok(t)
+        })?,
+    )?;
+
+    // char_advance(ch, size, font?) -> number
+    text.set(
+        "char_advance",
+        lua.create_function(|_, (ch, size, font): (String, f32, Option<String>)| {
+            let Some(ch) = ch.chars().next() else {
+                return Ok(0.0);
+            };
+            Ok(require_fonts()?.char_advance(ch, size, font_id(font.as_deref())?))
+        })?,
+    )?;
+
+    // x_of(text, col, size, font?) -> number
+    // Where a caret sits before character `col`. `col` is 1-based, Lua-style.
+    text.set(
+        "x_of",
+        lua.create_function(
+            |_, (s, col, size, font): (String, usize, f32, Option<String>)| {
+                let line = require_fonts()?.layout_line(&s, size, font_id(font.as_deref())?);
+                Ok(line.x_of(col.saturating_sub(1)))
+            },
+        )?,
+    )?;
+
+    // col_at(text, x, size, font?) -> number
+    // Which character boundary an x lands nearest. 1-based, so it pairs with
+    // string.sub(s, 1, col - 1).
+    text.set(
+        "col_at",
+        lua.create_function(
+            |_, (s, x, size, font): (String, f32, f32, Option<String>)| {
+                let line = require_fonts()?.layout_line(&s, size, font_id(font.as_deref())?);
+                Ok(line.col_at(x) + 1)
+            },
+        )?,
+    )?;
+
+    // truncate(text, max_width, size, font?) -> string   (adds an ellipsis)
+    text.set(
+        "truncate",
+        lua.create_function(
+            |_, (s, max_w, size, font): (String, f32, f32, Option<String>)| {
+                Ok(require_fonts()?.truncate(&s, size, font_id(font.as_deref())?, max_w))
+            },
+        )?,
+    )?;
+
+    // wrap(text, max_width, size, font?) -> {string, ...}
+    text.set(
+        "wrap",
+        lua.create_function(
+            |_, (s, max_w, size, font): (String, f32, f32, Option<String>)| {
+                Ok(require_fonts()?.wrap(&s, size, font_id(font.as_deref())?, max_w))
+            },
+        )?,
+    )?;
+
     root.set("text", text)?;
 
     // -- baseui.log ---------------------------------------------------------
@@ -317,6 +452,68 @@ fn install(lua: &Lua) -> mlua::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script must be able to *measure*, not just guess. Without this a plugin
+    /// can only hard-code pixel widths, which breaks the moment the user changes
+    /// the text scale or the theme's font.
+    #[test]
+    fn script_can_measure_text() {
+        let Some(fonts) = baseui::text::Fonts::load() else {
+            return;
+        };
+        baseui::text::install(fonts);
+
+        let engine = LuaEngine::new().unwrap();
+        engine
+            .eval(
+                "measure",
+                r##"
+                local m = baseui.text.measure("hello", 14.0)
+                assert(m.width > 0, "width must be positive")
+                assert(m.height > 0, "height must be positive")
+
+                -- mono must actually be a different face than ui
+                local ui = baseui.text.width("iiiii", 14.0, "ui")
+                local mono = baseui.text.width("iiiii", 14.0, "mono")
+                assert(ui ~= mono, "ui and mono must measure differently")
+
+                -- vertical metrics add up
+                local vm = baseui.text.metrics(14.0)
+                assert(math.abs(vm.height - (vm.ascent + vm.descent + vm.line_gap)) < 0.01)
+
+                -- caret round-trip: the x of a column, back to that column.
+                -- Columns are 1-based on the Lua side.
+                local s = "hello world"
+                local x = baseui.text.x_of(s, 7, 14.0)
+                assert(baseui.text.col_at(s, x, 14.0) == 7, "x_of and col_at must round-trip")
+
+                -- truncation fits its budget and says it cut
+                local cut = baseui.text.truncate("a very long piece of text", 60.0, 14.0)
+                assert(baseui.text.width(cut, 14.0) <= 60.0)
+
+                -- wrapping returns a list of lines
+                local lines = baseui.text.wrap("the quick brown fox jumps over the lazy dog", 100.0, 14.0)
+                assert(#lines > 1, "long text must wrap to several lines")
+                "##,
+            )
+            .unwrap();
+    }
+
+    /// A typo in a font name must fail loudly. Silently measuring in the wrong
+    /// font yields layout that is subtly wrong, which is far worse to debug.
+    #[test]
+    fn unknown_font_name_is_an_error() {
+        let Some(fonts) = baseui::text::Fonts::load() else {
+            return;
+        };
+        baseui::text::install(fonts);
+
+        let engine = LuaEngine::new().unwrap();
+        let err = engine
+            .eval("bad-font", r#"baseui.text.width("x", 14.0, "monospace")"#)
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown font"), "got: {err}");
+    }
 
     #[test]
     fn script_registers_a_command_that_runs() {

@@ -243,26 +243,15 @@ impl TextBox {
         bounds.shrink(Insets::symmetric(cx_theme.spacing.md, cx_theme.spacing.sm))
     }
 
-    /// Char index nearest to pointer x within `inner`.
-    fn hit(&self, fonts: &crate::text::Fonts, inner_left: f32, x: f32) -> usize {
-        let target = x - inner_left + self.scroll_x;
-        let mut acc = 0.0;
-        for (idx, ch) in self.display().chars().enumerate() {
-            let adv = fonts.char_advance(ch, self.font_size, FontId::Ui);
-            if acc + adv * 0.5 > target {
-                return idx;
-            }
-            acc += adv;
-        }
-        self.len()
+    /// Lay out the displayed text. Every caret/selection/hit-test question is a
+    /// lookup on this — see [`crate::text::Line`].
+    fn line(&self, fonts: &crate::text::Fonts) -> crate::text::Line {
+        fonts.layout_line(&self.display(), self.font_size, FontId::Ui)
     }
 
-    fn prefix_width(&self, fonts: &crate::text::Fonts, display: &str, chars: usize) -> f32 {
-        display
-            .chars()
-            .take(chars)
-            .map(|ch| fonts.char_advance(ch, self.font_size, FontId::Ui))
-            .sum()
+    /// Char index nearest to pointer x within `inner`.
+    fn hit(&self, fonts: &crate::text::Fonts, inner_left: f32, x: f32) -> usize {
+        self.line(fonts).col_at(x - inner_left + self.scroll_x)
     }
 }
 
@@ -306,7 +295,8 @@ impl Widget for TextBox {
         let ty = inner.top() + (inner.height() - line_h) * 0.5;
 
         // Keep the caret within the viewport.
-        let caret_x = self.prefix_width(cx.fonts, &display, self.caret);
+        let line = cx.fonts.layout_line(&display, self.font_size, FontId::Ui);
+        let caret_x = line.x_of(self.caret);
         let inner_w = inner.width();
         if caret_x - self.scroll_x > inner_w - 2.0 {
             self.scroll_x = caret_x - inner_w + 2.0;
@@ -319,8 +309,7 @@ impl Widget for TextBox {
 
         // Selection highlight.
         if let Some((a, b)) = self.sel_range() {
-            let ax = self.prefix_width(cx.fonts, &display, a);
-            let bx = self.prefix_width(cx.fonts, &display, b);
+            let (ax, bx) = line.span(a, b);
             scene.rect(
                 Rect::from_xywh(text_x + ax, ty, (bx - ax).max(1.0), line_h),
                 p.selection,

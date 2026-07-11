@@ -74,12 +74,32 @@ baseui.shortcuts.bind(chord, command_id)
 baseui.bus.on(name, function(payload) end)
 baseui.bus.emit(name, table)
 baseui.status.add{ text = string | function, icon?, color?, right? }
-baseui.text.set_scale(n) ; baseui.text.scale()
 baseui.log.info/warn/error(msg)
+
+-- Text measurement (see docs/text.md). font is "ui" (default) | "mono" | "icon:N".
+baseui.text.measure(s, size, font?)        -- {width=, height=}
+baseui.text.width(s, size, font?)          -- single line
+baseui.text.metrics(size, font?)           -- {ascent=, descent=, line_gap=, height=}
+baseui.text.char_advance(ch, size, font?)
+baseui.text.x_of(s, col, size, font?)      -- caret x for a column (1-based)
+baseui.text.col_at(s, x, size, font?)      -- column nearest an x  (1-based)
+baseui.text.truncate(s, max_w, size, font?)-- fits the budget, adds an ellipsis
+baseui.text.wrap(s, max_w, size, font?)    -- list of lines
+baseui.text.set_scale(n) ; baseui.text.scale()
 ```
 
 Errors in a Lua handler are **caught and logged**, never unwound into the
 renderer.
+
+**Why scripts get the full measurement API and not just the zoom knob:** a plugin
+that contributes a status item or a generated label has to know how wide its text
+is, or it can only hard-code pixel widths — which break the moment the user
+changes the text scale or the theme's font. These are the *same* numbers the
+renderer positions glyphs by, so scripted layout is exactly as correct as Rust
+layout. An unknown font name is an error rather than a silent fallback, because
+measuring in the wrong font gives layout that is subtly, not obviously, wrong.
+Measurement needs the app's loaded fonts, so call it from a command or event
+handler, not at script top level.
 
 ## Deliberately not done (yet)
 

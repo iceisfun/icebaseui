@@ -51,6 +51,7 @@ baseui/
 │       │                #   Split, DockArea, MenuBar, Toolbar, StatusBar
 │       └── app          # App shell + winit loop + pointer/keyboard routing
 ├── docs/
+│   ├── text.md          # text measurement API: metrics, carets, truncate, wrap
 │   ├── rich-text.md     # styled runs, squiggles (built); wrapping galley (planned)
 │   ├── document-tabs.md # planned VS Code-style tabs for the content area
 │   ├── docking.md       # dock plan: id-tree design + phases (Phase 0 done)

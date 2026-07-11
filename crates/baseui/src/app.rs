@@ -529,7 +529,12 @@ impl ApplicationHandler for App {
         // Fonts, shared between layout (measurement) and the GPU (rasterization).
         if self.fonts.is_none() {
             match Fonts::load() {
-                Some(fonts) => self.fonts = Some(fonts),
+                Some(fonts) => {
+                    // Publish the same handle for code with no `cx`: scripts,
+                    // command handlers, anything measuring outside a pass.
+                    crate::text::install(fonts.clone());
+                    self.fonts = Some(fonts);
+                }
                 None => {
                     log::error!("no usable system fonts found; cannot start");
                     event_loop.exit();
