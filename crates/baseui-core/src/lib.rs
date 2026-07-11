@@ -24,4 +24,4 @@ pub mod reactive;
 pub use color::Color;
 pub use geometry::{Insets, Point, Rect, Size, Vec2};
 pub use id::Id;
-pub use reactive::{Memo, Signal, create_effect, create_memo, create_signal};
+pub use reactive::{Memo, Signal, create_effect, create_memo, create_signal, set_on_change};

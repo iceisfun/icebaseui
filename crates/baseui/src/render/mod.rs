@@ -6,17 +6,19 @@
 //! [`QuadInstance`]s (resolving the nested clip stack and rasterizing any needed
 //! glyphs into the font atlas), and draws them in a single instanced pass.
 
+mod glyph;
 mod quad;
-mod text;
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use baseui_core::paint::{Command, Primitive, RectShape, Scene};
 use baseui_core::{Color, Rect};
 use winit::window::Window;
 
+use crate::text::Fonts;
+use glyph::GlyphRenderer;
 use quad::{MODE_SHAPE, QuadInstance, QuadPipeline};
-use text::TextRenderer;
 
 /// Owns the GPU device, the window surface, and the drawing pipelines.
 pub struct Renderer {
@@ -29,19 +31,20 @@ pub struct Renderer {
     scale: f32,
 
     quad: QuadPipeline,
-    text: TextRenderer,
+    glyphs: GlyphRenderer,
 
     /// Reused per-frame instance scratch buffer.
     instances: Vec<QuadInstance>,
 }
 
 impl Renderer {
-    /// Create a renderer for `window`. Blocks on GPU adapter/device acquisition.
-    pub fn new(window: Arc<Window>) -> Result<Self, RendererError> {
-        pollster::block_on(Self::new_async(window))
+    /// Create a renderer for `window`, sharing the already-loaded [`Fonts`].
+    /// Blocks on GPU adapter/device acquisition.
+    pub fn new(window: Arc<Window>, fonts: Rc<Fonts>) -> Result<Self, RendererError> {
+        pollster::block_on(Self::new_async(window, fonts))
     }
 
-    async fn new_async(window: Arc<Window>) -> Result<Self, RendererError> {
+    async fn new_async(window: Arc<Window>, fonts: Rc<Fonts>) -> Result<Self, RendererError> {
         let mut size = window.inner_size();
         size.width = size.width.max(1);
         size.height = size.height.max(1);
@@ -96,8 +99,8 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
-        let text = TextRenderer::new(&device);
-        let quad = QuadPipeline::new(&device, format, text.atlas_view(), text.atlas_sampler());
+        let glyphs = GlyphRenderer::new(&device, fonts);
+        let quad = QuadPipeline::new(&device, format, glyphs.atlas_view(), glyphs.atlas_sampler());
 
         Ok(Renderer {
             surface,
@@ -107,7 +110,7 @@ impl Renderer {
             size,
             scale,
             quad,
-            text,
+            glyphs,
             instances: Vec::new(),
         })
     }
@@ -115,6 +118,11 @@ impl Renderer {
     /// The current surface size in physical pixels.
     pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
         self.size
+    }
+
+    /// The current logical->physical scale factor.
+    pub fn scale_factor(&self) -> f32 {
+        self.scale
     }
 
     /// Update the logical->physical scale factor (window moved to another
@@ -173,17 +181,16 @@ impl Renderer {
                             self.instances.push(rect_instance(shape, clip));
                         }
                         Primitive::Text(shape) => {
-                            // Split the borrow: text needs &mut atlas state and
-                            // pushes into the instance buffer.
+                            // Split the borrow: the glyph renderer needs &mut
+                            // atlas state and pushes into the instance buffer.
                             let Renderer {
-                                text,
+                                glyphs,
                                 instances,
-                                device,
                                 queue,
                                 scale,
                                 ..
                             } = self;
-                            text.push_text(device, queue, *scale, shape, clip, instances);
+                            glyphs.push_text(queue, *scale, shape, clip, instances);
                         }
                     }
                 }

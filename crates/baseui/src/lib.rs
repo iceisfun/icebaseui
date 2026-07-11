@@ -27,11 +27,16 @@
 //! ```
 
 pub mod app;
+pub mod event;
+pub mod layout;
 pub mod render;
+pub mod text;
 pub mod theme;
+pub mod widget;
 
 pub use app::{App, Frame, WindowConfig};
 pub use theme::Theme;
+pub use widget::{Button, Column, Label, Row, Widget};
 
 // Re-export the dependency-free core so downstream code has one import root.
 pub use baseui_core as core;

@@ -106,10 +106,41 @@ impl Runtime {
 
 thread_local! {
     static RUNTIME: RefCell<Runtime> = RefCell::new(Runtime::new());
+    /// Optional hook invoked after any signal mutation. The UI layer registers
+    /// this to request a repaint whenever reactive state changes — the bridge
+    /// that makes the retained widget tree reactive.
+    static ON_CHANGE: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
 }
 
 fn with_runtime<R>(f: impl FnOnce(&mut Runtime) -> R) -> R {
     RUNTIME.with(|rt| f(&mut rt.borrow_mut()))
+}
+
+/// Register a callback fired after every [`Signal::set`]/[`Signal::update`].
+///
+/// Typically the application registers something like
+/// `move || window.request_redraw()` so that mutating any signal — from an
+/// event handler, a timer, or async work — schedules a repaint. Replaces any
+/// previously registered hook.
+pub fn set_on_change(f: impl Fn() + 'static) {
+    ON_CHANGE.with(|slot| *slot.borrow_mut() = Some(Box::new(f)));
+}
+
+/// Invoke the change hook, if one is registered. Called after signal writes.
+/// The hook is temporarily moved out so it may itself touch signals without a
+/// borrow conflict.
+fn mark_dirty() {
+    let hook = ON_CHANGE.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+        ON_CHANGE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            // Only restore if no new hook was registered during the call.
+            if slot.is_none() {
+                *slot = Some(hook);
+            }
+        });
+    }
 }
 
 /// Run `computation` for `node`, tracking the signals it reads as `node`'s
@@ -199,6 +230,7 @@ impl<T: 'static> Signal<T> {
             rt.nodes[self.node.0].value = Some(Box::new(value));
         });
         notify_subscribers(self.node);
+        mark_dirty();
     }
 
     /// Mutate the value in place and re-run subscribers.
@@ -212,6 +244,7 @@ impl<T: 'static> Signal<T> {
             f(value);
         });
         notify_subscribers(self.node);
+        mark_dirty();
     }
 }
 

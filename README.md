@@ -29,10 +29,17 @@ baseui/
 │   │   └── reactive     # signals, memos, effects (the reactive runtime)
 │   └── baseui/          # the framework crate (winit + wgpu)
 │       ├── theme        # design tokens: palette, spacing, radius, type, motion
-│       ├── render       # wgpu backend (currently a themed clear)
-│       └── app          # App shell + winit event loop
+│       ├── text         # fonts (UI + mono) + text measurement
+│       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
+│       ├── layout       # box Constraints
+│       ├── event        # normalized input events
+│       ├── widget       # Widget trait + Label, Button, Column, Row
+│       └── app          # App shell + winit event loop + input routing
+├── docs/
+│   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
 └── examples/
-    └── hello/           # opens a themed window
+    ├── hello/           # painter demo (raw Scene: rects, text, clipping)
+    └── counter/         # widget + reactive-signal demo
 ```
 
 Large optional systems will live in their own crates: `baseui-dock`,
@@ -62,10 +69,13 @@ cargo clippy --workspace
 - [x] **M2 — 2D painter:** `Scene` display list + a single instanced-quad wgpu
       pipeline drawing SDF rounded-rects, borders, per-quad clipping, and text
       (ab_glyph glyph atlas, system font via fontdb).
-- [ ] **M3 — Widget tree + layout:** `Widget` trait, retained node tree wired to
-      signals, layout solver (Row/Column/Grid/Stack/Scroll), input routing.
-- [ ] **M4 — Core widgets:** Label, Button, Toggle, Checkbox, TextBox, Slider,
-      DragValue, ComboBox.
+- [x] **M3 — Widget tree + layout:** `Widget` trait (layout/paint/event passes),
+      Flutter-style box `Constraints`, `Column`/`Row` containers, `Label`
+      (static + reactive) and `Button`, pointer input routing, and the
+      reactive→repaint bridge (`set_on_change`). Monospace font + text
+      measurement landed as rich-text prerequisites (see `docs/rich-text.md`).
+- [ ] **M4 — Core widgets:** Toggle, Checkbox, TextBox, Slider, DragValue,
+      ComboBox; Grid/Stack/Scroll containers.
 - [ ] **M5 — Flagship widgets:** TreeView and PropertyView (Blender-Outliner /
       Properties-editor grade).
 - [ ] **M6 — App frame:** menu bar, toolbar, panels, status bar, tabs.

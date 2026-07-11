@@ -1,50 +1,44 @@
-//! Text rendering: a font, a glyph atlas, and simple left-to-right layout.
+//! GPU glyph rasterization and the shared font atlas.
 //!
-//! A single default sans-serif face is located via `fontdb` (system fonts) and
-//! rasterized on demand with `ab_glyph`. Each unique (glyph, pixel-size) pair is
-//! rasterized once into a shared R8 coverage atlas using a lightweight shelf
-//! packer, then emitted as textured quads (`mode = glyph`) through the same
-//! [`QuadPipeline`](super::quad::QuadPipeline) that draws shapes.
+//! Rasterizes each unique (font, glyph, pixel-size) once into a shelf-packed R8
+//! coverage atlas and emits textured quads (`mode = glyph`) through the
+//! [`QuadPipeline`](super::quad::QuadPipeline). Fonts and measurement live in
+//! [`crate::text`]; this module borrows a shared [`Fonts`] and only owns GPU
+//! state (the atlas texture) plus the rasterized-glyph cache.
 //!
-//! Layout here is deliberately minimal for the foundation: per-glyph advance
-//! widths and `\n` handling, no shaping/kerning/bidi. That is enough for Latin
-//! UI labels and can be swapped for a shaping engine (e.g. cosmic-text) later
-//! without changing the public paint API.
+//! Layout is minimal LTR (advance widths + `\n`); see `docs/rich-text.md` for
+//! the planned styled-run / cached-layout upgrade.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use ab_glyph::{Font, FontVec, PxScale, ScaleFont};
+use ab_glyph::{Font, PxScale, ScaleFont};
 use baseui_core::Rect;
 use baseui_core::paint::TextShape;
 
 use super::quad::{MODE_GLYPH, QuadInstance};
+use crate::text::{FontId, Fonts};
 
-/// Side length of the (square) glyph atlas texture, in texels.
 const ATLAS_SIZE: u32 = 1024;
 
-/// Cache key: font glyph id plus the integer pixel size it was rasterized at.
+/// Cache key: font family, glyph id, and integer rasterization pixel size.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GlyphKey {
+    font: FontId,
     glyph: u16,
     px: u32,
 }
 
-/// A rasterized glyph's location in the atlas and its placement metrics, all in
-/// physical pixels.
+/// A rasterized glyph's atlas location and placement metrics (physical px).
 #[derive(Clone, Copy)]
 struct AtlasEntry {
-    /// Atlas UV rect: u0, v0, u1, v1.
     uv: [f32; 4],
-    /// Bitmap size in physical px.
     width: f32,
     height: f32,
-    /// Offset from the pen origin (on the baseline) to the bitmap's top-left,
-    /// in physical px. `top` is typically negative (above the baseline).
     left: f32,
     top: f32,
 }
 
-/// A row-based ("shelf") atlas allocator with 1px padding between glyphs.
 struct ShelfPacker {
     x: u32,
     y: u32,
@@ -60,8 +54,6 @@ impl ShelfPacker {
         }
     }
 
-    /// Reserve a `w × h` region, returning its top-left origin, or `None` if the
-    /// atlas is full.
     fn alloc(&mut self, w: u32, h: u32) -> Option<(u32, u32)> {
         if w > ATLAS_SIZE || h > ATLAS_SIZE {
             return None;
@@ -81,25 +73,18 @@ impl ShelfPacker {
     }
 }
 
-/// Owns the font, atlas texture, and glyph cache.
-pub struct TextRenderer {
-    font: Option<FontVec>,
+/// Owns the atlas texture and glyph cache; borrows shared [`Fonts`].
+pub struct GlyphRenderer {
+    fonts: Rc<Fonts>,
     atlas_tex: wgpu::Texture,
     atlas_view: wgpu::TextureView,
     atlas_sampler: wgpu::Sampler,
     packer: ShelfPacker,
-    /// `None` value = a glyph with no outline (e.g. space); still cached so we
-    /// don't retry rasterizing it.
     cache: HashMap<GlyphKey, Option<AtlasEntry>>,
 }
 
-impl TextRenderer {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let font = load_default_font();
-        if font.is_none() {
-            log::error!("no system sans-serif font found; text will not render");
-        }
-
+impl GlyphRenderer {
+    pub fn new(device: &wgpu::Device, fonts: Rc<Fonts>) -> Self {
         let atlas_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("baseui-glyph-atlas"),
             size: wgpu::Extent3d {
@@ -126,8 +111,8 @@ impl TextRenderer {
             ..Default::default()
         });
 
-        TextRenderer {
-            font,
+        GlyphRenderer {
+            fonts,
             atlas_tex,
             atlas_view,
             atlas_sampler,
@@ -145,36 +130,29 @@ impl TextRenderer {
     }
 
     /// Lay out `shape` and append one glyph quad per visible glyph to `out`,
-    /// rasterizing any not-yet-cached glyphs into the atlas.
-    ///
-    /// `scale` is the logical→physical factor: glyphs are rasterized at
-    /// `size × scale` physical pixels for crispness, but emitted quads are in
-    /// logical pixels.
+    /// rasterizing not-yet-cached glyphs into the atlas at `size × scale` px.
     pub fn push_text(
         &mut self,
-        device: &wgpu::Device,
         queue: &wgpu::Queue,
         scale: f32,
         shape: &TextShape,
         clip: Rect,
         out: &mut Vec<QuadInstance>,
     ) {
-        let Some(font) = self.font.as_ref() else {
-            return;
-        };
+        let font_id = if shape.mono { FontId::Mono } else { FontId::Ui };
+        let font = self.fonts.face(font_id);
 
         let px = (shape.size * scale).round().max(1.0);
         let px_scale = PxScale::from(px);
         let scaled = font.as_scaled(px_scale);
-
         let ascent = scaled.ascent();
         let line_advance = scaled.height() + scaled.line_gap();
 
         let color = shape.color.to_linear();
         let clip_arr = [clip.left(), clip.top(), clip.width(), clip.height()];
 
-        let mut pen_x = shape.pos.x; // logical px
-        let mut baseline = shape.pos.y + ascent / scale; // logical px
+        let mut pen_x = shape.pos.x;
+        let mut baseline = shape.pos.y + ascent / scale;
 
         for ch in shape.text.chars() {
             if ch == '\n' {
@@ -185,25 +163,30 @@ impl TextRenderer {
 
             let glyph_id = font.glyph_id(ch);
             let key = GlyphKey {
+                font: font_id,
                 glyph: glyph_id.0,
                 px: px as u32,
             };
 
-            // Rasterize into the atlas on first sight.
             if !self.cache.contains_key(&key) {
-                let entry = rasterize_glyph(font, glyph_id, px_scale, &mut self.packer, |origin, w, h, data| {
-                    write_atlas(queue, &self.atlas_tex, origin, w, h, data);
-                });
+                let entry = rasterize_glyph(
+                    font,
+                    glyph_id,
+                    px_scale,
+                    &mut self.packer,
+                    |origin, w, h, data| write_atlas(queue, &self.atlas_tex, origin, w, h, data),
+                );
                 self.cache.insert(key, entry);
             }
 
             if let Some(entry) = self.cache.get(&key).copied().flatten() {
-                let x = pen_x + entry.left / scale;
-                let y = baseline + entry.top / scale;
-                let w = entry.width / scale;
-                let h = entry.height / scale;
                 out.push(QuadInstance {
-                    rect: [x, y, w, h],
+                    rect: [
+                        pen_x + entry.left / scale,
+                        baseline + entry.top / scale,
+                        entry.width / scale,
+                        entry.height / scale,
+                    ],
                     uv: entry.uv,
                     color,
                     border_color: [0.0; 4],
@@ -214,18 +197,11 @@ impl TextRenderer {
 
             pen_x += scaled.h_advance(glyph_id) / scale;
         }
-
-        // `device` is currently unused (atlas is fixed-size), but kept in the
-        // signature so a future dynamic/multi-page atlas can grow it.
-        let _ = device;
     }
 }
 
-/// Rasterize `glyph_id` at `px_scale`, allocate an atlas slot, hand the bitmap
-/// to `upload`, and return its placement entry. Returns `None` for glyphs with
-/// no outline (whitespace) or when the atlas is full.
 fn rasterize_glyph(
-    font: &FontVec,
+    font: &ab_glyph::FontVec,
     glyph_id: ab_glyph::GlyphId,
     px_scale: PxScale,
     packer: &mut ShelfPacker,
@@ -265,7 +241,6 @@ fn rasterize_glyph(
     })
 }
 
-/// Upload one glyph bitmap into the atlas at `origin`.
 fn write_atlas(
     queue: &wgpu::Queue,
     atlas: &wgpu::Texture,
@@ -297,24 +272,4 @@ fn write_atlas(
             depth_or_array_layers: 1,
         },
     );
-}
-
-/// Locate a system sans-serif face and load it as an `ab_glyph` font.
-fn load_default_font() -> Option<FontVec> {
-    let mut db = fontdb::Database::new();
-    db.load_system_fonts();
-
-    // Prefer the configured generic sans-serif; fall back to any face.
-    let query = fontdb::Query {
-        families: &[fontdb::Family::SansSerif],
-        ..Default::default()
-    };
-    let id = db
-        .query(&query)
-        .or_else(|| db.faces().next().map(|f| f.id))?;
-
-    db.with_face_data(id, |data, index| {
-        FontVec::try_from_vec_and_index(data.to_vec(), index).ok()
-    })
-    .flatten()
 }

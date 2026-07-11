@@ -1,0 +1,208 @@
+//! The widget system: the retained tree of UI objects.
+//!
+//! A [`Widget`] persists across frames (it is *retained*) and holds its own
+//! state. Each frame the framework runs three passes over the tree:
+//!
+//! 1. [`Widget::layout`] — the parent hands down [`Constraints`], the widget
+//!    returns the [`Size`] it chose.
+//! 2. [`Widget::paint`] — the widget emits primitives into the [`Scene`], given
+//!    the absolute `bounds` its parent assigned.
+//! 3. [`Widget::event`] — raw [`InputEvent`]s are routed down with the same
+//!    `bounds`, letting the widget hit-test itself.
+//!
+//! Widgets bind to application state through the reactive [`Signal`]s in
+//! `baseui-core`: a [`Label`] reads a signal in its content closure, a
+//! [`Button`] writes one in its click handler, and
+//! [`set_on_change`](baseui_core::reactive::set_on_change) turns any signal
+//! write into a repaint. That is the *reactive* half of "retained + reactive".
+//!
+//! [`Constraints`]: crate::layout::Constraints
+//! [`Signal`]: baseui_core::Signal
+
+mod button;
+mod label;
+mod stack;
+
+pub use button::Button;
+pub use label::Label;
+pub use stack::{Column, Row};
+
+use baseui_core::Size;
+use baseui_core::paint::Scene;
+use baseui_core::{Point, Rect};
+
+use crate::event::InputEvent;
+use crate::layout::Constraints;
+use crate::text::Fonts;
+use crate::theme::Theme;
+
+/// Context shared by the layout pass.
+pub struct LayoutCx<'a> {
+    pub fonts: &'a Fonts,
+    pub theme: &'a Theme,
+}
+
+/// Context shared by the paint pass.
+pub struct PaintCx<'a> {
+    pub fonts: &'a Fonts,
+    pub theme: &'a Theme,
+}
+
+/// Context shared by the event pass.
+pub struct EventCx<'a> {
+    pub fonts: &'a Fonts,
+    pub theme: &'a Theme,
+}
+
+/// A retained UI element. See the [module docs](self) for the three-pass model.
+pub trait Widget {
+    /// Choose a size within `constraints`. Containers should also record the
+    /// positions/sizes of their children here for use in `paint`/`event`.
+    fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size;
+
+    /// Emit primitives for this widget, occupying the absolute `bounds` the
+    /// parent assigned (its origin is this widget's top-left on screen).
+    fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene);
+
+    /// Handle a routed input event. `bounds` is this widget's absolute rect, so
+    /// the widget can hit-test the pointer position itself. Default: ignore.
+    fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        let _ = (cx, bounds, event);
+    }
+
+    /// Box this widget — sugar for building trees.
+    fn boxed(self) -> Box<dyn Widget>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
+}
+
+/// Translate a child rect stored relative to a container's origin into an
+/// absolute rect on screen.
+pub(crate) fn absolute(container: Rect, child_rel: Rect) -> Rect {
+    Rect::new(
+        Point::new(
+            container.left() + child_rel.left(),
+            container.top() + child_rel.top(),
+        ),
+        child_rel.size,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::{InputEvent, PointerButton};
+    use crate::text::Fonts;
+    use crate::theme::Theme;
+    use baseui_core::Insets;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    /// A widget of fixed size that records the absolute bounds it is handed
+    /// during `event` — used to assert container layout positions.
+    struct Probe {
+        size: Size,
+        seen: Rc<Cell<Option<Rect>>>,
+    }
+
+    impl Widget for Probe {
+        fn layout(&mut self, _cx: &mut LayoutCx<'_>, c: Constraints) -> Size {
+            c.constrain(self.size)
+        }
+        fn paint(&mut self, _cx: &mut PaintCx<'_>, _bounds: Rect, _scene: &mut Scene) {}
+        fn event(&mut self, _cx: &mut EventCx<'_>, bounds: Rect, _event: &InputEvent) {
+            self.seen.set(Some(bounds));
+        }
+    }
+
+    #[test]
+    fn column_positions_children_with_padding_and_spacing() {
+        let Some(fonts) = Fonts::load() else {
+            eprintln!("no system fonts; skipping");
+            return;
+        };
+        let theme = Theme::dark();
+
+        let seen0 = Rc::new(Cell::new(None));
+        let seen1 = Rc::new(Cell::new(None));
+        let mut col = Column::new()
+            .padding(Insets::all(10.0))
+            .spacing(5.0)
+            .child(Probe {
+                size: Size::new(100.0, 20.0),
+                seen: seen0.clone(),
+            })
+            .child(Probe {
+                size: Size::new(100.0, 30.0),
+                seen: seen1.clone(),
+            });
+
+        let mut lcx = LayoutCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        let size = col.layout(&mut lcx, Constraints::loose(Size::new(1000.0, 1000.0)));
+        // 10 pad + 20 + 5 spacing + 30 + 10 pad = 75 tall; 100 + 20 pad = 120 wide.
+        assert_eq!(size, Size::new(120.0, 75.0));
+
+        let mut ecx = EventCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        col.event(
+            &mut ecx,
+            Rect::new(Point::ZERO, size),
+            &InputEvent::PointerMoved { pos: Point::ZERO },
+        );
+        assert_eq!(seen0.get(), Some(Rect::from_xywh(10.0, 10.0, 100.0, 20.0)));
+        assert_eq!(seen1.get(), Some(Rect::from_xywh(10.0, 35.0, 100.0, 30.0)));
+    }
+
+    #[test]
+    fn button_click_fires_on_press_then_release_inside() {
+        let Some(fonts) = Fonts::load() else {
+            eprintln!("no system fonts; skipping");
+            return;
+        };
+        let theme = Theme::dark();
+
+        let clicks = Rc::new(Cell::new(0));
+        let c2 = clicks.clone();
+        let mut button = Button::new("Go").on_click(move || c2.set(c2.get() + 1));
+
+        let mut lcx = LayoutCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        let size = button.layout(&mut lcx, Constraints::loose(Size::new(1000.0, 1000.0)));
+        let bounds = Rect::new(Point::ZERO, size);
+        let inside = bounds.center();
+        let outside = Point::new(bounds.right() + 50.0, bounds.bottom() + 50.0);
+
+        let mut ecx = EventCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        let mut send = |b: &mut Button, e: InputEvent| {
+            b.event(&mut ecx, bounds, &e);
+        };
+
+        // Press + release inside => one click.
+        send(&mut button, InputEvent::PointerPressed { pos: inside, button: PointerButton::Primary });
+        send(&mut button, InputEvent::PointerReleased { pos: inside, button: PointerButton::Primary });
+        assert_eq!(clicks.get(), 1);
+
+        // Press inside, release outside => no additional click.
+        send(&mut button, InputEvent::PointerPressed { pos: inside, button: PointerButton::Primary });
+        send(&mut button, InputEvent::PointerReleased { pos: outside, button: PointerButton::Primary });
+        assert_eq!(clicks.get(), 1);
+
+        // A press entirely outside never arms the button.
+        send(&mut button, InputEvent::PointerPressed { pos: outside, button: PointerButton::Primary });
+        send(&mut button, InputEvent::PointerReleased { pos: inside, button: PointerButton::Primary });
+        assert_eq!(clicks.get(), 1);
+    }
+}
