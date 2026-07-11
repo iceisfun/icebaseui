@@ -56,7 +56,7 @@ pub use split::Split;
 pub use stack::{Column, Row};
 pub use statusbar::{StatusBar, StatusItem};
 pub use tabs::{TabStrip, TabView};
-pub use textarea::{Diagnostic, Highlighter, Span, TextArea};
+pub use textarea::{Checker, DEFAULT_LINE_SPACING, Diagnostic, Highlighter, Span, TextArea};
 pub use textbox::TextBox;
 pub use toolbar::Toolbar;
 pub use tree::{TreeNode, TreeView};
@@ -72,7 +72,9 @@ use crate::theme::Theme;
 
 /// Context shared by the layout pass.
 pub struct LayoutCx<'a> {
+    /// Font metrics — measuring text is most of what layout does.
     pub fonts: &'a Fonts,
+    /// Metrics and colours; consulted here for the sizes baked into the theme.
     pub theme: &'a Theme,
     /// Which window is being laid out, when known.
     pub window: Option<crate::window::WindowId>,
@@ -80,7 +82,9 @@ pub struct LayoutCx<'a> {
 
 /// Context shared by the paint pass.
 pub struct PaintCx<'a> {
+    /// Font metrics, for positioning glyphs within the rect layout settled on.
     pub fonts: &'a Fonts,
+    /// The colours to draw with.
     pub theme: &'a Theme,
     /// The window's logical size — popups use it to stay on screen.
     pub screen: Size,
@@ -97,7 +101,9 @@ pub struct PaintCx<'a> {
 /// This is what stops clicks/hover from bleeding through a popup to the widgets
 /// beneath it.
 pub struct EventCx<'a> {
+    /// Font metrics — hit-testing text (a caret from a click x) needs them.
     pub fonts: &'a Fonts,
+    /// Metrics and colours, for widgets whose hit areas follow theme sizes.
     pub theme: &'a Theme,
     /// The window's logical size — popups use it to stay on screen.
     pub screen: Size,
@@ -108,6 +114,8 @@ pub struct EventCx<'a> {
 }
 
 impl<'a> EventCx<'a> {
+    /// A context for one event, not yet consumed and not yet tagged with a
+    /// window — see [`EventCx::with_window`].
     pub fn new(fonts: &'a Fonts, theme: &'a Theme, screen: Size) -> Self {
         EventCx {
             fonts,

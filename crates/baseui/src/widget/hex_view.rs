@@ -78,6 +78,8 @@ pub struct HexView {
 }
 
 impl HexView {
+    /// Takes ownership of the bytes to dump. Only the visible rows are laid out
+    /// and painted, so a large buffer costs what fits on screen.
     pub fn new(data: impl Into<Vec<u8>>) -> Self {
         HexView {
             data: data.into(),

@@ -35,6 +35,7 @@ pub struct Menu {
 }
 
 impl Menu {
+    /// An empty menu with `title` as its bar entry.
     pub fn new(title: impl Into<String>) -> Self {
         Menu {
             title: title.into(),
@@ -133,6 +134,7 @@ pub struct MenuBar {
 }
 
 impl MenuBar {
+    /// An empty bar. Add menus with [`MenuBar::menu`].
     pub fn new() -> Self {
         MenuBar {
             menus: Vec::new(),
@@ -145,6 +147,7 @@ impl MenuBar {
         }
     }
 
+    /// Append a menu; titles are laid out left to right in the order added.
     pub fn menu(mut self, menu: Menu) -> Self {
         self.menus.push(menu);
         self

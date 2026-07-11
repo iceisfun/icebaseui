@@ -36,6 +36,8 @@ pub struct DragValue {
 }
 
 impl DragValue {
+    /// Unbounded and unlabelled. Constrain it with [`DragValue::range`] — the
+    /// default limits are infinite, so a drag will happily run off to any value.
     pub fn new(value: Signal<f32>) -> Self {
         DragValue {
             value,

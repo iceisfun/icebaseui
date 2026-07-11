@@ -23,13 +23,16 @@ use crate::{Color, FontId, Point, Rect};
 /// A filled, optionally rounded and/or bordered rectangle.
 #[derive(Clone, Copy, Debug)]
 pub struct RectShape {
+    /// Area covered by the shape, in logical pixels.
     pub rect: Rect,
+    /// Interior color; use [`Color::TRANSPARENT`] for a border-only outline.
     pub fill: Color,
     /// Uniform corner radius in logical pixels (`0.0` = square corners).
     pub corner_radius: f32,
     /// Border thickness in logical pixels, drawn inset from the rect edge
     /// (`0.0` = no border).
     pub border_width: f32,
+    /// Border color; ignored when `border_width` is `0.0`.
     pub border_color: Color,
 }
 
@@ -45,11 +48,13 @@ impl RectShape {
         }
     }
 
+    /// Round the corners by `radius` logical pixels.
     pub fn with_corner_radius(mut self, radius: f32) -> Self {
         self.corner_radius = radius;
         self
     }
 
+    /// Add a border of `width` logical pixels, drawn inset from the rect edge.
     pub fn with_border(mut self, width: f32, color: Color) -> Self {
         self.border_width = width;
         self.border_color = color;
@@ -65,9 +70,11 @@ impl RectShape {
 pub struct TextShape {
     /// Top-left anchor of the text's layout box, in logical pixels.
     pub pos: Point,
+    /// The string to draw; may contain any characters the chosen font covers.
     pub text: String,
     /// Font size in logical pixels.
     pub size: f32,
+    /// Color applied to every glyph in the run.
     pub color: Color,
     /// Which font family to render with (UI, monospace, or an icon font).
     pub font: FontId,
@@ -91,8 +98,11 @@ pub enum Decoration {
 /// line box).
 #[derive(Clone, Copy, Debug)]
 pub struct DecorationShape {
+    /// The band to decorate, in logical pixels — see the type-level note.
     pub rect: Rect,
+    /// Color of the decoration line, independent of the text's own color.
     pub color: Color,
+    /// Which decoration to draw within the band.
     pub kind: Decoration,
     /// Line thickness in logical pixels.
     pub thickness: f32,
@@ -103,8 +113,11 @@ pub struct DecorationShape {
 /// A single drawable primitive.
 #[derive(Clone, Debug)]
 pub enum Primitive {
+    /// A filled, optionally rounded and/or bordered rectangle.
     Rect(RectShape),
+    /// A run of text.
     Text(TextShape),
+    /// An underline, squiggle, or strikethrough over a span of text.
     Decoration(DecorationShape),
 }
 
@@ -113,8 +126,11 @@ pub enum Primitive {
 /// current clip stack.
 #[derive(Clone, Debug)]
 pub enum Command {
+    /// Draw a primitive under the current clip stack.
     Draw(Primitive),
+    /// Intersect the current clip with `rect` until the matching [`Command::PopClip`].
     PushClip(Rect),
+    /// Undo the most recent [`Command::PushClip`].
     PopClip,
 }
 
@@ -132,6 +148,7 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// An empty scene with no allocated command storage.
     pub fn new() -> Self {
         Scene {
             commands: Vec::new(),
@@ -157,6 +174,8 @@ impl Scene {
         &self.overlay
     }
 
+    /// Returns `true` if neither the main nor the overlay stream holds any
+    /// command, so the frame has nothing to render.
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty() && self.overlay.is_empty()
     }

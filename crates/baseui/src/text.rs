@@ -43,8 +43,9 @@ use baseui_core::Size;
 
 pub use baseui_core::FontId;
 
-/// Smallest / largest allowed global text scale.
+/// Smallest allowed global text scale; [`set_scale`] clamps to it.
 pub const MIN_SCALE: f32 = 0.5;
+/// Largest allowed global text scale; [`set_scale`] clamps to it.
 pub const MAX_SCALE: f32 = 3.0;
 
 thread_local! {
@@ -381,6 +382,7 @@ impl Line {
         self.offsets.len() - 1
     }
 
+    /// Whether the line holds no characters (its width is then `0.0`).
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

@@ -1,7 +1,7 @@
 //! `font-gis` icon pack constants (generated from font-gis.css).
 //!
 //! font-gis by Jean-Marc Viglino, licensed OFL/MIT/Apache/CC-BY.
-//! Each constant is an [`Icon`](super::Icon) into the embedded icon font at
+//! Each constant is an [`Icon`] into the embedded icon font at
 //! [`FontId::Icon(GIS)`](baseui_core::FontId). Enabled by the `icons-gis` feature.
 //!
 //! [`by_name`] resolves an icon from its `fg-` name at runtime, which is how

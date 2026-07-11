@@ -43,6 +43,8 @@ pub struct TextBox {
 }
 
 impl TextBox {
+    /// Binds to `value` — unlike [`TextArea`](super::TextArea), a single line is
+    /// cheap enough to clone through a signal on every read.
     pub fn new(value: Signal<String>) -> Self {
         TextBox {
             value,

@@ -12,7 +12,7 @@
 //!   gated behind the `icons-gis` feature (on by default).
 //!
 //! Additional packs (Tabler, Material, Lucide, …) plug in the same way: register
-//! their font bytes in [`embedded_icon_fonts`] at a new [`FontId::Icon`] index
+//! their font bytes in `embedded_icon_fonts` at a new [`FontId::Icon`] index
 //! and generate constants for them. (Tabler ships as SVG, so it additionally
 //! needs the planned vector-path painter.)
 

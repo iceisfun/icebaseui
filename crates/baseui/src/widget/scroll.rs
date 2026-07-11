@@ -29,6 +29,8 @@ pub struct ScrollArea {
 }
 
 impl ScrollArea {
+    /// Wraps `child`, scrolling it vertically when it is taller than the
+    /// viewport.
     pub fn new(child: impl Widget + 'static) -> Self {
         ScrollArea {
             child: Box::new(child),

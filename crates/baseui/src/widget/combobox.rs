@@ -25,6 +25,8 @@ pub struct ComboBox {
 }
 
 impl ComboBox {
+    /// `selected` is an index into `options` — the box shows that entry and
+    /// writes the new index back when the user picks another.
     pub fn new(
         selected: Signal<usize>,
         options: impl IntoIterator<Item = impl Into<String>>,

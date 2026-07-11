@@ -32,6 +32,8 @@ pub struct Button {
 }
 
 impl Button {
+    /// A secondary button that does nothing. Attach an action with
+    /// [`Button::on_click`].
     pub fn new(label: impl Into<String>) -> Self {
         Button {
             label: label.into(),

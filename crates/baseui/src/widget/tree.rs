@@ -222,6 +222,8 @@ pub struct TreeView {
 }
 
 impl TreeView {
+    /// Takes ownership of the forest to display. The tree is flattened to visible
+    /// rows during layout, so collapsed subtrees cost nothing to paint.
     pub fn new(roots: Vec<TreeNode>) -> Self {
         TreeView {
             roots,

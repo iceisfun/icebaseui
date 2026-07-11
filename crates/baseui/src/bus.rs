@@ -98,7 +98,11 @@ pub fn unsubscribe(id: SubscriptionId) {
 /// string, with a JSON payload. It rides on the same bus (it is just another
 /// event type), so Rust and Lua subscribers see the same traffic.
 pub struct NamedEvent {
+    /// The address subscribers match on, e.g. `"selection.changed"`. Matched
+    /// exactly — there is no wildcard or prefix matching.
     pub name: String,
+    /// The event body. JSON rather than a Rust type, so Lua and Rust subscribers
+    /// can agree on it without sharing a `TypeId`.
     pub payload: serde_json::Value,
 }
 

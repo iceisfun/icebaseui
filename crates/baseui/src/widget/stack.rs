@@ -112,6 +112,7 @@ impl Stack {
 pub struct Column(Stack);
 
 impl Column {
+    /// An empty column: no children, no spacing, no padding.
     pub fn new() -> Self {
         Column(Stack::new())
     }
@@ -169,25 +170,32 @@ impl Widget for Column {
 pub struct Row(Stack);
 
 impl Row {
+    /// An empty row: no children, no spacing, no padding.
     pub fn new() -> Self {
         Row(Stack::new())
     }
 
+    /// Add a child. Children are placed left to right in the order added, and
+    /// receive events in that order too.
     pub fn child(mut self, widget: impl Widget + 'static) -> Self {
         self.0.children.push(Box::new(widget));
         self
     }
 
+    /// Add an already-boxed child — for children whose type is only known at
+    /// runtime.
     pub fn child_boxed(mut self, widget: Box<dyn Widget>) -> Self {
         self.0.children.push(widget);
         self
     }
 
+    /// Gap between children in logical pixels.
     pub fn spacing(mut self, spacing: f32) -> Self {
         self.0.spacing = spacing;
         self
     }
 
+    /// Padding around the children.
     pub fn padding(mut self, padding: Insets) -> Self {
         self.0.padding = padding;
         self

@@ -180,7 +180,9 @@ fn register_panel_commands() {
 /// Which way a dock split divides its children.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum DockAxis {
+    /// Children side by side, divided by vertical gutters.
     Horizontal,
+    /// Children stacked, divided by horizontal gutters.
     Vertical,
 }
 
@@ -189,12 +191,22 @@ pub enum DockAxis {
 pub enum DockNode {
     /// Children laid out along `axis`, sized by `sizes` (fractions summing to 1).
     Split {
+        /// Which way the area is divided.
         axis: DockAxis,
+        /// Sub-trees, in order along `axis`.
         children: Vec<DockNode>,
+        /// One fraction of the parent's extent per child. Dragging a gutter
+        /// rewrites these, which is why they are fractions and not pixels: the
+        /// ratio then survives a window resize.
         sizes: Vec<f32>,
     },
     /// A tab group: several panels sharing one area, one of them active.
-    Tabs { panels: Vec<String>, active: usize },
+    Tabs {
+        /// Panel ids in tab order. Ids, never widgets — the tree is pure layout.
+        panels: Vec<String>,
+        /// Index into `panels` of the tab currently shown.
+        active: usize,
+    },
 }
 
 impl DockNode {
@@ -253,6 +265,9 @@ pub struct Panel {
 }
 
 impl Panel {
+    /// A closable panel. `id` is what the [`DockNode`] tree refers to and what
+    /// persisted layouts are keyed on, so it must be stable across runs; `title`
+    /// is only what the tab reads.
     pub fn new(
         id: impl Into<String>,
         title: impl Into<String>,
@@ -268,6 +283,7 @@ impl Panel {
         }
     }
 
+    /// Icon shown on the tab, left of the title.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
@@ -381,6 +397,8 @@ pub struct DockArea {
 }
 
 impl DockArea {
+    /// A dock over the layout `root` describes. The panels it names must still be
+    /// supplied; `root` holds ids only.
     pub fn new(root: DockNode) -> Self {
         register_panel_commands();
         DockArea {

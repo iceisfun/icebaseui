@@ -36,6 +36,8 @@ pub struct Slider {
 }
 
 impl Slider {
+    /// Binds to `value` over the default `0.0..=1.0`; widen it with
+    /// [`Slider::range`].
     pub fn new(value: Signal<f32>) -> Self {
         Slider {
             value,

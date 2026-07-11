@@ -41,6 +41,7 @@
 /// but leaves the caret elsewhere makes the user hunt for what just changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
+    /// The whole document, not a diff — see the module note on what that costs.
     pub text: String,
     /// Caret as (line, column-in-chars).
     pub caret: (usize, usize),
@@ -86,7 +87,11 @@ pub trait History {
     /// app hit a save point. The next edit starts a fresh entry.
     fn close_group(&mut self);
 
+    /// Whether [`undo`](History::undo) would return a state — what an Edit menu
+    /// greys its entry on.
     fn can_undo(&self) -> bool;
+
+    /// Whether [`redo`](History::redo) would return a state.
     fn can_redo(&self) -> bool;
 }
 
@@ -120,6 +125,7 @@ impl Default for UndoStack {
 }
 
 impl UndoStack {
+    /// An empty stack holding up to [`DEFAULT_LIMIT`] steps.
     pub fn new() -> Self {
         Self::default()
     }

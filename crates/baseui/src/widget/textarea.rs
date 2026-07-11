@@ -40,8 +40,11 @@ use crate::undo::{EditKind, History, Snapshot, UndoStack};
 /// A coloured run within one line, in **character** columns.
 #[derive(Clone, Copy, Debug)]
 pub struct Span {
+    /// First column of the run.
     pub start: usize,
+    /// One past the last column of the run.
     pub end: usize,
+    /// Colour to draw the run in.
     pub color: Color,
 }
 
@@ -51,9 +54,13 @@ pub type Highlighter = Box<dyn Fn(&str) -> Vec<Span>>;
 /// A squiggly underline under a range of one line — an error or warning.
 #[derive(Clone, Copy, Debug)]
 pub struct Diagnostic {
+    /// Line the squiggle sits under. A diagnostic never spans lines.
     pub line: usize,
+    /// First column covered, in **character** columns.
     pub start: usize,
+    /// One past the last column covered.
     pub end: usize,
+    /// Colour of the squiggle — the caller's severity scale, not ours.
     pub color: Color,
 }
 
@@ -102,6 +109,7 @@ pub struct TextArea {
 }
 
 impl TextArea {
+    /// An editable area holding `text`, split into lines on `\n`.
     pub fn new(text: impl AsRef<str>) -> Self {
         TextArea {
             lines: split_lines(text.as_ref()),
@@ -125,6 +133,8 @@ impl TextArea {
         }
     }
 
+    /// Glyph size in logical pixels; the row height follows from it via
+    /// [`TextArea::line_spacing`].
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = size;
         self
@@ -217,6 +227,7 @@ impl TextArea {
         self.history.as_ref().is_some_and(|h| h.can_undo())
     }
 
+    /// Whether there is anything to redo. `false` when no history is enabled.
     pub fn can_redo(&self) -> bool {
         self.history.as_ref().is_some_and(|h| h.can_redo())
     }

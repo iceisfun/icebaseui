@@ -10,7 +10,10 @@ use baseui_core::Size;
 /// A min/max size range a widget must resolve to a concrete size within.
 #[derive(Clone, Copy, Debug)]
 pub struct Constraints {
+    /// Smallest size the widget may return, in logical pixels.
     pub min: Size,
+    /// Largest size the widget may return, in logical pixels;
+    /// `f32::INFINITY` on an axis the parent leaves unbounded.
     pub max: Size,
 }
 

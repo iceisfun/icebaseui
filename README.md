@@ -69,6 +69,32 @@ baseui/
 Large optional systems will live in their own crates: `baseui-dock`,
 `baseui-graph`, `baseui-terminal`, `baseui-code`, `baseui-plot`, etc.
 
+## Documentation
+
+```sh
+cargo doc --workspace --no-deps --open
+```
+
+Every public item is documented — `missing_docs` is warned on in both crates, and
+`RUSTDOCFLAGS="-D warnings" cargo doc` is part of the pre-commit checks, so the
+API docs cannot silently rot. The crate-level docs are the entry point; start
+there.
+
+Longer-form guides live in `docs/`:
+
+| Guide | What it covers |
+| --- | --- |
+| [`docs/text.md`](docs/text.md) | Text measurement: metrics, carets, hit-testing, truncation, wrapping — from Rust and Lua |
+| [`docs/docking.md`](docs/docking.md) | The dock: id-tree vs content-registry, drag/split/detach |
+| [`docs/scripting.md`](docs/scripting.md) | The Lua API, and why scripts compose but do not implement widgets |
+| [`docs/rich-text.md`](docs/rich-text.md) | Styled runs and squiggles (built); the wrapping galley engine (planned) |
+| [`docs/document-tabs.md`](docs/document-tabs.md) | VS Code-style tabs for the content area |
+
+Writing a widget? [`.claude/skills/baseui-widget/SKILL.md`](.claude/skills/baseui-widget/SKILL.md)
+is a task-scoped guide to the `Widget` trait and the four rules the framework will
+not enforce for you. [`CLAUDE.md`](CLAUDE.md) records the load-bearing invariants —
+each one is there because breaking it produced a bug that was not visible in the diff.
+
 ## Running
 
 ```bash

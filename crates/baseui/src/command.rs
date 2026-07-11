@@ -28,10 +28,17 @@ use crate::theme::Theme;
 /// Metadata describing a registered command (everything except its handler).
 #[derive(Clone)]
 pub struct CommandMeta {
+    /// Stable identifier everything else invokes the command by — menus,
+    /// toolbars, shortcuts, and the palette. Registering it twice replaces it.
     pub id: String,
+    /// Human-readable label, shown wherever the command is listed.
     pub title: String,
+    /// Groups the command in the palette, and is matched by palette search.
+    /// Defaults to `"General"`.
     pub category: String,
+    /// Glyph drawn beside the title in menus, toolbars, and the palette.
     pub icon: Option<Icon>,
+    /// Tint for the icon; falls back to the theme's text color.
     pub color: Option<Color>,
     /// Human-readable shortcut hint (e.g. `"Ctrl+S"`), shown in menus/palette.
     pub shortcut: Option<String>,
@@ -44,6 +51,8 @@ pub struct CommandMeta {
 }
 
 impl CommandMeta {
+    /// A global command in the `"General"` category, with no icon, color, or
+    /// shortcut; refine it with the builders below.
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
         CommandMeta {
             id: id.into(),
@@ -62,21 +71,26 @@ impl CommandMeta {
         self
     }
 
+    /// Group the command under `category` in the palette.
     pub fn category(mut self, category: impl Into<String>) -> Self {
         self.category = category.into();
         self
     }
 
+    /// Show `icon` beside the title wherever the command is listed.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Tint the icon; without one it inherits the theme's text color.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
+    /// Advertise a chord (e.g. `"Ctrl+S"`). [`register`] also installs it in the
+    /// shortcut table, so this both documents *and* binds the key.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
@@ -255,7 +269,7 @@ fn normalize_chord(chord: &str) -> String {
 }
 
 /// Build the canonical chord string for a key + modifiers (matches
-/// [`normalize_chord`]'s output).
+/// `normalize_chord`'s output).
 pub fn chord_of(key: &Key, mods: Modifiers) -> String {
     let key_name = match key {
         Key::Function(n) => format!("f{n}"),
@@ -314,6 +328,8 @@ pub struct CommandPalette {
 }
 
 impl CommandPalette {
+    /// A closed palette. [`App`](crate::App) already owns one — construct your
+    /// own only if you drive the widget tree yourself.
     pub fn new() -> Self {
         CommandPalette {
             open: false,
@@ -327,6 +343,8 @@ impl CommandPalette {
         }
     }
 
+    /// Whether the palette is showing — and therefore swallowing input, since an
+    /// open palette takes keys and clicks before the widget tree sees them.
     pub fn is_open(&self) -> bool {
         self.open
     }

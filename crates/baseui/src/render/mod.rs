@@ -9,7 +9,7 @@
 //!   and DPI scale.
 //!
 //! Each frame, [`GpuContext::render`] walks a [`Scene`] for one window, flattens
-//! it into [`QuadInstance`]s (resolving the clip stack and rasterizing any new
+//! it into instanced quads (resolving the clip stack and rasterizing any new
 //! glyphs into the shared atlas), and draws them in a single instanced pass.
 //!
 //! Because the glyph cache keys on the *rasterized pixel size*
@@ -409,9 +409,15 @@ fn decoration_instance(shape: &DecorationShape, clip: Rect) -> QuadInstance {
 /// Errors that can occur while creating or driving the renderer.
 #[derive(Debug)]
 pub enum RendererError {
+    /// The window's presentation surface could not be created or configured.
     Surface(String),
+    /// No GPU adapter satisfied the request — typically a missing or unusable
+    /// graphics backend rather than an application bug.
     NoAdapter(String),
+    /// An adapter was found, but requesting a device from it failed.
     NoDevice(String),
+    /// A GPU allocation (surface, buffer, or glyph atlas) failed for lack of
+    /// memory.
     OutOfMemory,
 }
 

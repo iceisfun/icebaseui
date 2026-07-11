@@ -6,6 +6,14 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "A modern, extensible, reactive desktop UI framework for engineering applications, built on winit + wgpu."
+readme = "../../README.md"
+keywords = ["gui", "ui", "wgpu", "winit", "desktop"]
+categories = ["gui", "rendering"]
+
+# docs.rs builds with every feature on, so the icon packs are documented too.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["icons-gis"]

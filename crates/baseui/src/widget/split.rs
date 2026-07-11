@@ -73,7 +73,7 @@ struct Drag {
     start_len: f32,
 }
 
-/// A split container with draggable gutters. See the [module docs](self).
+/// A split container with draggable gutters. See the module docs.
 pub struct Split {
     axis: Axis,
     panes: Vec<Pane>,
@@ -85,10 +85,12 @@ pub struct Split {
 }
 
 impl Split {
+    /// Panes side by side, with vertical gutters between them.
     pub fn horizontal() -> Self {
         Self::new(Axis::Horizontal)
     }
 
+    /// Panes stacked, with horizontal gutters between them.
     pub fn vertical() -> Self {
         Self::new(Axis::Vertical)
     }

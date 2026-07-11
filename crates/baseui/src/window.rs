@@ -180,9 +180,17 @@ pub(crate) fn take_requests() -> Vec<Request> {
     REQUESTS.with(|r| std::mem::take(&mut *r.borrow_mut()))
 }
 
-/// Mark the UI dirty; the App repaints **every** window. This is what the
-/// reactive change hook calls, since a signal may be read by any window.
-pub(crate) fn mark_dirty() {
+/// Mark the UI dirty: [`App`](crate::App) repaints **every** window.
+///
+/// Signal writes call this for you — this is what the reactive change hook does,
+/// since a signal may be read by any window.
+///
+/// **Call it yourself whenever global, non-signal state changes.** A plain
+/// `static` (a theme override, a mode flag, the text scale) has no change hook,
+/// so nothing would repaint; the symptom is a second window updating "late",
+/// whenever something else happens to redraw it. Both the global text scale and
+/// command dispatch had to learn this the hard way.
+pub fn mark_dirty() {
     DIRTY.with(|d| d.set(true));
 }
 

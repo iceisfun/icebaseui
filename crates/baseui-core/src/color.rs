@@ -7,22 +7,33 @@
 /// An RGBA color with `f32` channels in `0.0..=1.0`.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Color {
+    /// Red channel, `0.0..=1.0` sRGB, not premultiplied by alpha.
     pub r: f32,
+    /// Green channel, `0.0..=1.0` sRGB, not premultiplied by alpha.
     pub g: f32,
+    /// Blue channel, `0.0..=1.0` sRGB, not premultiplied by alpha.
     pub b: f32,
+    /// Opacity, `0.0` fully transparent to `1.0` fully opaque.
     pub a: f32,
 }
 
 impl Color {
+    /// Fully transparent; the RGB channels are zero, so this composites as a
+    /// no-op regardless of blend mode.
     pub const TRANSPARENT: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
+    /// Opaque black.
     pub const BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+    /// Opaque white.
     pub const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
 
+    /// Construct from `f32` sRGB channels. Values are stored as given and are
+    /// not clamped to `0.0..=1.0`.
     #[inline]
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
+    /// Construct an opaque color from `f32` sRGB channels.
     #[inline]
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self::rgba(r, g, b, 1.0)
@@ -39,6 +50,7 @@ impl Color {
         )
     }
 
+    /// Construct an opaque color from 8-bit sRGB channels.
     #[inline]
     pub fn rgb8(r: u8, g: u8, b: u8) -> Self {
         Self::rgba8(r, g, b, 255)

@@ -9,11 +9,23 @@
 //!
 //! It provides:
 //!
-//! - [`geometry`]: `Point`, `Size`, `Rect`, `Vec2`, and `Insets`.
-//! - [`color`]: an RGBA [`Color`](color::Color) type with hex parsing.
-//! - [`id`]: process-unique, monotonically increasing [`Id`](id::Id)s.
+//! - [`geometry`]: [`Point`], [`Size`], [`Rect`], [`Vec2`], and [`Insets`] — all
+//!   in logical (DPI-independent) pixels, origin top-left, y down.
+//! - [`color`]: an RGBA [`Color`] with hex parsing and sRGB/linear conversion.
+//! - [`id`]: process-unique, monotonically increasing [`Id`]s.
+//! - [`font`]: [`FontId`] — which face a run of text is drawn in (UI, monospace,
+//!   or an icon font).
+//! - [`paint`]: the [`Scene`](paint::Scene) display list — a flat, backend-agnostic
+//!   list of rects, text, and decorations, with a clip stack and an overlay layer
+//!   so popups escape their parents' clips. Widgets emit into it; the renderer in
+//!   the `baseui` crate consumes it. This is the seam that keeps the widget tree
+//!   from knowing anything about the GPU.
 //! - [`reactive`]: a small single-threaded reactive runtime (signals, memos,
 //!   and effects) that powers BaseUI's retained + reactive widget tree.
+
+// Every public item carries documentation. This is a lint, not a convention,
+// because a convention is what let 213 items go undocumented in the first place.
+#![warn(missing_docs)]
 
 pub mod color;
 pub mod font;

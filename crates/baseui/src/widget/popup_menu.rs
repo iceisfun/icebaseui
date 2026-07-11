@@ -33,17 +33,22 @@ const OPTIONS_W: f32 = 26.0;
 /// One entry in a [`PopupMenu`].
 #[derive(Clone, Default)]
 pub struct MenuItemSpec {
+    /// Text of the entry.
     pub label: String,
+    /// Icon drawn in the left gutter, if any.
     pub icon: Option<Icon>,
     /// Right-aligned shortcut hint, e.g. `"Ctrl+S"`.
     pub shortcut: Option<String>,
+    /// A disabled entry is greyed out and cannot be activated or hovered.
     pub enabled: bool,
+    /// A horizontal rule instead of an entry; `label` and the rest are ignored.
     pub separator: bool,
     /// Show a right-aligned options gear that activates separately (Maya-style).
     pub has_options: bool,
 }
 
 impl MenuItemSpec {
+    /// An enabled entry with no icon, shortcut, or options button.
     pub fn new(label: impl Into<String>) -> Self {
         MenuItemSpec {
             label: label.into(),
@@ -52,6 +57,7 @@ impl MenuItemSpec {
         }
     }
 
+    /// A rule between groups of entries. Never hovers and never activates.
     pub fn separator() -> Self {
         MenuItemSpec {
             separator: true,
@@ -59,21 +65,27 @@ impl MenuItemSpec {
         }
     }
 
+    /// Draw `icon` in the left gutter.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Show a shortcut hint on the right. Purely a hint — the popup does not
+    /// bind the key; the owner does.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
     }
 
+    /// Grey the entry out and make it unclickable.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
     }
 
+    /// Add the options gear, so the entry can be activated two ways — see
+    /// [`Activation::options`].
     pub fn with_options(mut self) -> Self {
         self.has_options = true;
         self
@@ -83,7 +95,10 @@ impl MenuItemSpec {
 /// What a click activated: an item index, and whether it hit the options gear.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Activation {
+    /// Index into the item list the popup was opened with.
     pub index: usize,
+    /// `true` when the click landed on the options gear rather than the entry
+    /// itself, so the owner can run the secondary action.
     pub options: bool,
 }
 
@@ -102,6 +117,8 @@ pub struct PopupMenu {
 }
 
 impl PopupMenu {
+    /// A closed popup. Owners keep one for their whole lifetime and open it on
+    /// demand; the items are supplied at open time, not here.
     pub fn new() -> Self {
         PopupMenu {
             font_size: 14.0,
@@ -109,6 +126,9 @@ impl PopupMenu {
         }
     }
 
+    /// Whether the popup is currently showing. Owners check this before
+    /// interpreting a click as "open me" — otherwise a click on the anchor would
+    /// close and immediately reopen.
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -137,6 +157,9 @@ impl PopupMenu {
         self.open_below(Rect::new(pos, Size::ZERO), items);
     }
 
+    /// Close the popup and release the keyboard modality it took on open.
+    /// Idempotent, so an owner can call it on any dismissing event without
+    /// tracking whether it was open.
     pub fn close(&mut self) {
         if self.open {
             self.open = false;

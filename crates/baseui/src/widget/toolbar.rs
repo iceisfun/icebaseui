@@ -45,6 +45,7 @@ pub struct Toolbar {
 }
 
 impl Toolbar {
+    /// An empty bar. Add entries with [`Toolbar::button`] and friends.
     pub fn new() -> Self {
         Toolbar {
             items: Vec::new(),

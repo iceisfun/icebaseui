@@ -20,7 +20,7 @@
 //!   the single source of truth for all of them.
 //! - **shortcuts** — bind a chord to a command id.
 //! - **events** — subscribe/publish on the named channel
-//!   ([`bus::on_named`](baseui::bus::on_named)), so scripts and Rust see the
+//!   ([`baseui::bus::on_named`]), so scripts and Rust see the
 //!   same traffic.
 //! - **status items** — contribute to the status bar.
 //! - **text scale** and **logging**.

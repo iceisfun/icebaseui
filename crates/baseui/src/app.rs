@@ -7,7 +7,7 @@
 //! registry, and the reactive runtime. A signal write repaints every window.
 //!
 //! Secondary windows are opened by queueing a [`WindowSpec`](crate::window::WindowSpec)
-//! with [`window::open`](crate::window::open) — from a command handler, a button,
+//! with [`window::open`] — from a command handler, a button,
 //! or (later) a dock tab tear-off. The queue is drained when the event loop goes
 //! idle, which is the only place the `ActiveEventLoop` is available.
 
@@ -35,8 +35,11 @@ use crate::window;
 /// Configuration for the main application window.
 #[derive(Clone, Debug)]
 pub struct WindowConfig {
+    /// Title bar text.
     pub title: String,
+    /// Initial inner width in logical pixels; the user may resize afterwards.
     pub width: u32,
+    /// Initial inner height in logical pixels; the user may resize afterwards.
     pub height: u32,
 }
 

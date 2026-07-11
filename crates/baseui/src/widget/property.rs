@@ -37,6 +37,7 @@ pub struct PropGroup {
 }
 
 impl PropGroup {
+    /// An expanded, empty group. Add rows with [`PropGroup::row`].
     pub fn new(title: impl Into<String>) -> Self {
         PropGroup {
             id: Id::next(),
@@ -83,6 +84,7 @@ pub struct PropertyView {
 }
 
 impl PropertyView {
+    /// An empty inspector. Add sections with [`PropertyView::group`].
     pub fn new() -> Self {
         PropertyView {
             groups: Vec::new(),
@@ -93,6 +95,7 @@ impl PropertyView {
         }
     }
 
+    /// Append a section; groups stack top to bottom in the order added.
     pub fn group(mut self, group: PropGroup) -> Self {
         self.groups.push(group);
         self

@@ -35,6 +35,8 @@ pub struct Checkbox {
 }
 
 impl Checkbox {
+    /// Binds to `value`: the box renders whatever the signal holds, and toggles
+    /// it on click. The signal is the state, not a copy of it.
     pub fn new(value: Signal<bool>, label: impl Into<String>) -> Self {
         Checkbox {
             value,

@@ -49,10 +49,20 @@ pub struct Palette {
 /// instead of magic numbers so density stays consistent and themeable.
 #[derive(Clone, Copy, Debug)]
 pub struct Spacing {
+    /// Hairline gap between tightly-coupled parts: an icon and its label, a row's
+    /// vertical breathing room.
     pub xs: f32,
+    /// Padding inside a small control, and the gap between adjacent controls in a
+    /// toolbar or tab strip.
     pub sm: f32,
+    /// The default padding for panel and menu content — the step to reach for when
+    /// no other step is clearly right.
     pub md: f32,
+    /// Horizontal padding for button labels, and the gap between distinct groups
+    /// (e.g. status-bar sections).
     pub lg: f32,
+    /// The largest step, for separating major regions. No widget currently uses it;
+    /// it exists so apps have a top step that scales with the rest.
     pub xl: f32,
 }
 
@@ -71,8 +81,12 @@ impl Default for Spacing {
 /// Corner radii in logical pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Radius {
+    /// Small in-place chrome: tabs, close buttons, selection and hover highlights.
     pub sm: f32,
+    /// Standalone controls and floating surfaces: buttons, popup menus.
     pub md: f32,
+    /// Large overlays that should read as detached from the window, such as the
+    /// command palette.
     pub lg: f32,
 }
 
@@ -118,10 +132,21 @@ impl Default for Typography {
 }
 
 /// Animation timing tokens in milliseconds.
+///
+/// No built-in widget animates yet, so nothing reads these today; they are here so
+/// that when widgets do animate they agree on durations instead of each inventing
+/// one. [`Theme::scaled`] deliberately leaves them alone — time does not scale with
+/// font size.
 #[derive(Clone, Copy, Debug)]
 pub struct Motion {
+    /// Immediate feedback the user should not perceive as an animation: hover and
+    /// press state changes.
     pub fast_ms: u32,
+    /// The default for a visible transition, e.g. a panel expanding or a popup
+    /// fading in.
     pub normal_ms: u32,
+    /// Deliberately slow, for large movements the eye needs to follow, such as a
+    /// docked panel sliding across the window.
     pub slow_ms: u32,
 }
 
@@ -138,11 +163,18 @@ impl Default for Motion {
 /// A complete theme: the bundle of design tokens the whole framework reads from.
 #[derive(Clone, Debug)]
 pub struct Theme {
+    /// Human-readable name, for theme pickers and settings persistence. Not an
+    /// identity — nothing looks a theme up by it.
     pub name: String,
+    /// Semantic colors. The only tokens a light/dark swap actually changes.
     pub palette: Palette,
+    /// Padding and gap steps; scaled by [`Theme::scaled`].
     pub spacing: Spacing,
+    /// Corner radii; scaled by [`Theme::scaled`].
     pub radius: Radius,
+    /// Font families and sizes; sizes are scaled by [`Theme::scaled`], families are not.
     pub typography: Typography,
+    /// Animation durations; deliberately *not* scaled by [`Theme::scaled`].
     pub motion: Motion,
 }
 

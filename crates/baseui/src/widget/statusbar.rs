@@ -104,6 +104,7 @@ pub struct StatusBar {
 }
 
 impl StatusBar {
+    /// An empty bar. Add cells with [`StatusBar::item`].
     pub fn new() -> Self {
         StatusBar {
             items: Vec::new(),
@@ -112,6 +113,8 @@ impl StatusBar {
         }
     }
 
+    /// Append an item. Left-side items are packed in the order added; right-side
+    /// items (see [`StatusItem::right`]) are packed inward from the right edge.
     pub fn item(mut self, item: StatusItem) -> Self {
         self.items.push(item);
         self

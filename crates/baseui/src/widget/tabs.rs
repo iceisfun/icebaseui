@@ -52,6 +52,7 @@ pub struct TabView {
 }
 
 impl TabView {
+    /// An empty view with the strip on top. Add tabs with [`TabView::tab`].
     pub fn new() -> Self {
         TabView {
             tabs: Vec::new(),
