@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ab_glyph::{Font, PxScale, ScaleFont};
+use ab_glyph::{Font, PxScale};
 use baseui_core::Rect;
 use baseui_core::paint::TextShape;
 
@@ -144,26 +144,41 @@ impl GlyphRenderer {
             return; // font (e.g. an unregistered icon font) not loaded
         };
 
-        // The global text scale must be applied here exactly as it is in
-        // `Fonts` measurement, or the caret/hit-testing would drift from what is
-        // actually drawn. `scale` is the DPI (logical -> physical) factor.
-        let logical_size = shape.size * crate::text::scale();
-        let px = (logical_size * scale).round().max(1.0);
+        // Positions and rasterization use two *different* scales, deliberately:
+        //
+        // - **Positions** — the pen advance, the ascent, the line step — come from
+        //   [`Fonts`], at the exact logical size, via the very same methods
+        //   widgets measure with. There is one definition of "how wide is this
+        //   character" in the codebase and this is it. A caret is only correct if
+        //   it agrees with the pen to the last decimal, so the two must not be
+        //   able to drift apart.
+        // - **Rasterization** happens at `round(size × dpi)` physical pixels:
+        //   integer sizes keep the atlas cache small and the bitmaps crisp.
+        //
+        // Deriving advances from that *rounded* raster size (which this used to
+        // do) scales every advance by `round(size × dpi) / (size × dpi)`. That is
+        // under 3%, but it **accumulates along the line**, so the caret drifts
+        // further from the text the longer the line gets — and it only shows up on
+        // fractional-DPI displays and at some font sizes, which is what made it
+        // nasty. Take positions from `Fonts` and the bug is unrepresentable.
+        let ascent = self.fonts.ascent(shape.size, font_id);
+        let line_advance = self.fonts.line_height(shape.size, font_id);
+
+        // `scale` is the DPI (logical -> physical) factor; `text::scale()` is the
+        // user's global text zoom, which `Fonts` already folds in.
+        let px = (shape.size * crate::text::scale() * scale).round().max(1.0);
         let px_scale = PxScale::from(px);
-        let scaled = font.as_scaled(px_scale);
-        let ascent = scaled.ascent();
-        let line_advance = scaled.height() + scaled.line_gap();
 
         let color = shape.color.to_linear();
         let clip_arr = [clip.left(), clip.top(), clip.width(), clip.height()];
 
         let mut pen_x = shape.pos.x;
-        let mut baseline = shape.pos.y + ascent / scale;
+        let mut baseline = shape.pos.y + ascent;
 
         for ch in shape.text.chars() {
             if ch == '\n' {
                 pen_x = shape.pos.x;
-                baseline += line_advance / scale;
+                baseline += line_advance;
                 continue;
             }
 
@@ -201,7 +216,11 @@ impl GlyphRenderer {
                 });
             }
 
-            pen_x += scaled.h_advance(glyph_id) / scale;
+            // The pen steps by exactly what `Fonts::char_advance` reports — the
+            // same call every caret, hit-test and column layout uses. (The bitmap
+            // above is still placed from raster-size bearings, so it stays
+            // pixel-exact; only the *step* is metric-driven.)
+            pen_x += self.fonts.char_advance(ch, shape.size, font_id);
         }
     }
 }

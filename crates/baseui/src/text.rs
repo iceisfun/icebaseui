@@ -105,7 +105,14 @@ impl Fonts {
             .ascent()
     }
 
-    /// Advance width of a single character (useful for monospace grids).
+    /// Advance width of a single character, in logical pixels.
+    ///
+    /// **This is the single definition of how far the pen moves.** The renderer
+    /// steps its pen by exactly this (see `render::glyph::push_text`), so any
+    /// caret, hit-test, or column layout built by summing it lands precisely on
+    /// the drawn glyphs — at any DPI, at any text scale. Do not re-derive
+    /// advances from a rasterized pixel size; that rounds, and the error
+    /// accumulates along the line.
     pub fn char_advance(&self, ch: char, size: f32, id: FontId) -> f32 {
         let Some(font) = self.face(id) else {
             return 0.0;
@@ -153,4 +160,64 @@ fn load_family(db: &fontdb::Database, family: fontdb::Family<'_>) -> Option<Font
         FontVec::try_from_vec_and_index(data.to_vec(), index).ok()
     })
     .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The contract every caret, hit-test, and column layout in the codebase
+    /// leans on: a run's width is the *sum of its characters' advances*.
+    ///
+    /// Widgets place a caret by summing `char_advance` up to the caret column;
+    /// the renderer steps its pen by the same call. If these two could disagree,
+    /// the caret would drift further from the text the longer the line got —
+    /// which is exactly the bug that motivated this test.
+    #[test]
+    fn measure_is_the_sum_of_char_advances() {
+        let Some(fonts) = Fonts::load() else { return };
+
+        for id in [FontId::Ui, FontId::Mono] {
+            for size in [11.0, 13.0, 14.0, 17.0] {
+                let text = "Lines do not wrap — that is what keeps the caret a prefix sum.";
+                let summed: f32 = text
+                    .chars()
+                    .map(|ch| fonts.char_advance(ch, size, id))
+                    .sum();
+                let measured = fonts.measure(text, size, id).width;
+                assert!(
+                    (summed - measured).abs() < 0.01,
+                    "{id:?} at {size}: summed advances {summed} != measured width {measured}"
+                );
+            }
+        }
+    }
+
+    /// Advances are **logical**: they must not be quantized to whole physical
+    /// pixels. A renderer that derived them from a rounded raster size would
+    /// scale them by `round(size × dpi) / (size × dpi)` — a few percent, but it
+    /// accumulates, so a long line ends up visibly out of step with its caret.
+    ///
+    /// Pinned by checking that advances are exactly linear in size: rounding
+    /// anywhere in the chain would break that.
+    #[test]
+    fn advances_are_linear_in_size_not_pixel_quantized() {
+        let Some(fonts) = Fonts::load() else { return };
+
+        let a = fonts.char_advance('m', 14.0, FontId::Ui);
+        let b = fonts.char_advance('m', 28.0, FontId::Ui);
+        assert!(
+            (b - a * 2.0).abs() < 0.01,
+            "advance at 28px ({b}) should be exactly double that at 14px ({a})"
+        );
+
+        // 17.5px is what a 14px font wants on a 1.25x display: the size the old
+        // renderer rounded to 18 before taking its advances.
+        let frac = fonts.char_advance('m', 17.5, FontId::Ui);
+        let whole = fonts.char_advance('m', 18.0, FontId::Ui);
+        assert!(
+            frac < whole,
+            "a fractional size must produce a fractional advance, not a rounded one"
+        );
+    }
 }
