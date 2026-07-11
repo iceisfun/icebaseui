@@ -171,6 +171,24 @@ Two details worth keeping:
   the window is positioned so the *grabbed point* stays under the pointer — after
   the move the cursor reports ~the same local position again.
 
+### Docking back: remember where it came from
+
+Docking a panel back **without** an explicit drop target used to dump it in
+whatever group happened to be first. `Panel` now records a `Home` when it is
+pulled out — and the anchor is the **sibling panel ids, not a tree path**, because
+pulling the panel out can prune its group's parent and collapse the split,
+invalidating any path. "The group that still contains Viewport" survives that;
+`[1, 0]` does not.
+
+Resolution order when a panel comes back:
+
+1. an explicit **claim** (it was dropped on an indicator) — always wins,
+2. its **home** (the group it left, at the index it had),
+3. failing both, `adopt_orphans` puts it in the first group.
+
+Either way the tab **flashes** for ~0.7s, so it is obvious where it landed — which
+matters most in exactly the case where the user did *not* choose the target.
+
 ### Not verified interactively
 
 The drag gesture cannot be exercised in this environment (no pointer injection),

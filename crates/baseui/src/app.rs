@@ -13,6 +13,7 @@
 
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use baseui_core::paint::Scene;
 use baseui_core::reactive;
@@ -216,6 +217,17 @@ impl App {
         let logical = self.windows[index].renderer.logical_size();
         let bounds = Rect::from_xywh(0.0, 0.0, logical.width, logical.height);
         let window_id = self.windows[index].window.id();
+
+        // The open command palette is modal: it takes the pointer too, so its
+        // rows are clickable and a click outside dismisses it.
+        if self.palette.is_open() {
+            if let Some(fonts) = self.fonts.as_ref() {
+                if self.palette.on_pointer(fonts, logical, &event) {
+                    self.request_redraw_all();
+                    return;
+                }
+            }
+        }
 
         if let (Some(root), Some(fonts)) = (
             self.windows[index].root.as_mut(),
@@ -671,6 +683,19 @@ impl ApplicationHandler for App {
         if window::take_dirty() {
             self.request_redraw_all();
         }
+
+        // A widget asked for another frame while painting (an animation is
+        // running). Schedule one instead of going idle; as soon as nobody asks
+        // again we fall back to waiting, so idle costs nothing.
+        if crate::anim::take_pending() {
+            self.request_redraw_all();
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+
         if self.windows.is_empty() {
             event_loop.exit();
         }

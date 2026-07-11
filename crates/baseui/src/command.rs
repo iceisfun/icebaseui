@@ -307,6 +307,10 @@ pub struct CommandPalette {
     selected: usize,
     results: Vec<CommandMeta>,
     font_size: f32,
+    /// Geometry, recomputed each frame; shared by paint and hit-testing.
+    panel: Rect,
+    box_rect: Rect,
+    row_rects: Vec<Rect>,
 }
 
 impl CommandPalette {
@@ -317,6 +321,9 @@ impl CommandPalette {
             selected: 0,
             results: Vec::new(),
             font_size: 15.0,
+            panel: Rect::ZERO,
+            box_rect: Rect::ZERO,
+            row_rects: Vec::new(),
         }
     }
 
@@ -392,12 +399,80 @@ impl CommandPalette {
         self.refresh();
     }
 
+    /// Recompute the panel/search-box/row rects. Shared by `paint` and pointer
+    /// hit-testing, so clicking a row always matches what is drawn.
+    fn compute(&mut self, fonts: &Fonts, screen: Size) {
+        let width = (screen.width * 0.6).clamp(360.0, 640.0);
+        let x = (screen.width - width) * 0.5;
+        let y = (screen.height * 0.14).max(24.0);
+        let line_h = fonts.line_height(self.font_size, FontId::Ui);
+        let box_h = line_h + 20.0;
+        let row_h = line_h + 12.0;
+        let visible = self.results.len().min(MAX_VISIBLE);
+        let panel_h = box_h + visible as f32 * row_h + 8.0;
+
+        self.panel = Rect::from_xywh(x, y, width, panel_h);
+        self.box_rect = Rect::from_xywh(x + 8.0, y + 8.0, width - 16.0, box_h - 8.0);
+        self.row_rects = (0..visible)
+            .map(|i| {
+                Rect::from_xywh(
+                    x + 6.0,
+                    y + box_h + i as f32 * row_h,
+                    width - 12.0,
+                    row_h,
+                )
+            })
+            .collect();
+    }
+
+    /// Handle a pointer event while open: hover highlights a row, a click runs
+    /// it, and a click outside dismisses. Returns whether the palette consumed it.
+    pub fn on_pointer(
+        &mut self,
+        fonts: &Fonts,
+        screen: Size,
+        event: &crate::event::InputEvent,
+    ) -> bool {
+        use crate::event::{InputEvent, PointerButton};
+        if !self.open {
+            return false;
+        }
+        self.compute(fonts, screen);
+
+        match event {
+            InputEvent::PointerMoved { pos } => {
+                if let Some(i) = self.row_rects.iter().position(|r| r.contains(*pos)) {
+                    self.selected = i;
+                }
+                true
+            }
+            InputEvent::PointerPressed {
+                pos,
+                button: PointerButton::Primary,
+            } => {
+                if let Some(i) = self.row_rects.iter().position(|r| r.contains(*pos)) {
+                    if let Some(cmd) = self.results.get(i) {
+                        let id = cmd.id.clone();
+                        self.close();
+                        run(&id);
+                    }
+                } else if !self.panel.contains(*pos) {
+                    self.close(); // click outside dismisses
+                }
+                true
+            }
+            InputEvent::PointerReleased { .. } | InputEvent::Scroll { .. } => true,
+            _ => false,
+        }
+    }
+
     /// Paint the palette into the scene's overlay layer. `screen` is the logical
     /// window size.
     pub fn paint(&mut self, fonts: &Fonts, theme: &Theme, screen: Size, scene: &mut Scene) {
         if !self.open {
             return;
         }
+        self.compute(fonts, screen);
         let p = &theme.palette;
         scene.begin_overlay();
 
@@ -407,15 +482,14 @@ impl CommandPalette {
             Color::rgba(0.0, 0.0, 0.0, 0.45),
         );
 
-        let width = (screen.width * 0.6).clamp(360.0, 640.0);
-        let x = (screen.width - width) * 0.5;
-        let y = (screen.height * 0.14).max(24.0);
-        let box_h = fonts.line_height(self.font_size, FontId::Ui) + 20.0;
-        let row_h = fonts.line_height(self.font_size, FontId::Ui) + 12.0;
-        let visible = self.results.len().min(MAX_VISIBLE);
-        let panel_h = box_h + visible as f32 * row_h + 8.0;
+        let width = self.panel.width();
+        let x = self.panel.left();
+        let y = self.panel.top();
+        let line_h = fonts.line_height(self.font_size, FontId::Ui);
+        let box_h = line_h + 20.0;
+        let row_h = line_h + 12.0;
 
-        let panel = Rect::from_xywh(x, y, width, panel_h);
+        let panel = self.panel;
         scene.push_rect(
             RectShape::fill(panel, p.surface)
                 .with_corner_radius(theme.radius.lg)
@@ -423,7 +497,7 @@ impl CommandPalette {
         );
 
         // Search box.
-        let box_rect = Rect::from_xywh(x + 8.0, y + 8.0, width - 16.0, box_h - 8.0);
+        let box_rect = self.box_rect;
         scene.push_rect(
             RectShape::fill(box_rect, p.surface_variant)
                 .with_corner_radius(theme.radius.md)

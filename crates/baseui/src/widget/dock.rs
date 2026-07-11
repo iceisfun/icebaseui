@@ -22,6 +22,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use baseui_core::paint::{RectShape, Scene};
 use baseui_core::{Insets, Point, Rect, Size};
@@ -228,6 +229,18 @@ impl DockNode {
     }
 }
 
+/// Where a panel last lived, so it can go **back** there rather than landing in
+/// whatever group happens to be first.
+///
+/// Anchored on the **sibling panel ids**, not a tree path: paths shift whenever
+/// the tree is pruned (and pulling this panel out may well have pruned its
+/// group's parent), whereas "the group that still contains Viewport" survives.
+#[derive(Clone, Debug)]
+struct Home {
+    neighbors: Vec<String>,
+    index: usize,
+}
+
 /// A dockable panel: an id, its tab chrome, and the widget it shows.
 pub struct Panel {
     id: String,
@@ -235,6 +248,8 @@ pub struct Panel {
     icon: Option<Icon>,
     closable: bool,
     widget: Box<dyn Widget>,
+    /// Set when the panel is pulled out of a dock; used to restore it.
+    home: Option<Home>,
 }
 
 impl Panel {
@@ -245,6 +260,7 @@ impl Panel {
             icon: None,
             closable: true,
             widget: Box::new(widget),
+            home: None,
         }
     }
 
@@ -330,6 +346,8 @@ struct GutterDrag {
 }
 
 const GUTTER: f32 = 6.0;
+/// How long a just-docked tab flashes.
+const FLASH_SECS: f32 = 0.7;
 const DRAG_THRESHOLD: f32 = 4.0;
 /// Fraction of a group's edge that triggers a split rather than a tab drop.
 const EDGE: f32 = 0.25;
@@ -352,6 +370,9 @@ pub struct DockArea {
     context: PopupMenu,
     context_panel: Option<String>,
 
+    /// A panel that just docked: flash its tab so it's obvious where it went.
+    flash: Option<(String, Instant)>,
+
     persist_key: Option<String>,
 }
 
@@ -371,6 +392,7 @@ impl DockArea {
             gutter_drag: None,
             context: PopupMenu::new(),
             context_panel: None,
+            flash: None,
             persist_key: None,
         }
     }
@@ -520,9 +542,10 @@ impl DockArea {
             return;
         }
         if let Some(group) = first_tabs_mut(&mut self.root) {
-            if let DockNode::Tabs { panels, .. } = group {
+            if let DockNode::Tabs { panels, active } = group {
                 for id in orphans {
                     panels.push(id);
+                    *active = panels.len() - 1; // show what we just added
                 }
             }
         } else {
@@ -543,6 +566,38 @@ impl DockArea {
 // ---------------------------------------------------------------------------
 // Tree helpers (pure, testable)
 // ---------------------------------------------------------------------------
+
+/// The tab group `id` currently sits in: its siblings and its index.
+fn find_home(node: &DockNode, id: &str) -> Option<Home> {
+    match node {
+        DockNode::Tabs { panels, .. } => panels.iter().position(|p| p == id).map(|index| Home {
+            neighbors: panels.iter().filter(|p| p.as_str() != id).cloned().collect(),
+            index,
+        }),
+        DockNode::Split { children, .. } => children.iter().find_map(|c| find_home(c, id)),
+    }
+}
+
+/// Path of the first tab group containing any of `wanted`.
+fn find_group_with_any(node: &DockNode, wanted: &[String], path: &mut Vec<usize>) -> Option<Vec<usize>> {
+    match node {
+        DockNode::Tabs { panels, .. } => panels
+            .iter()
+            .any(|p| wanted.contains(p))
+            .then(|| path.clone()),
+        DockNode::Split { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                path.push(i);
+                if let Some(found) = find_group_with_any(child, wanted, path) {
+                    path.pop();
+                    return Some(found);
+                }
+                path.pop();
+            }
+            None
+        }
+    }
+}
 
 fn first_tabs_mut(node: &mut DockNode) -> Option<&mut DockNode> {
     match node {
@@ -703,12 +758,27 @@ impl Widget for DockArea {
         // gets adopted by `adopt_orphans`.
         for (panel, claim) in take_redock() {
             let id = panel.id.clone();
+            let home = panel.home.clone();
             self.panels.insert(id.clone(), panel);
-            if let Some(claim) = claim {
-                if Some(claim.window) == cx.window {
-                    apply_placement(&mut self.root, &claim.path, &claim.zone, id);
+
+            // 1. An explicit drop target (dragged onto an indicator) always wins.
+            let placed = match &claim {
+                Some(c) if Some(c.window) == cx.window => {
+                    apply_placement(&mut self.root, &c.path, &c.zone, id.clone());
+                    true
                 }
-            }
+                Some(_) => false, // claimed by a different window's dock
+                // 2. Otherwise put it back where it came from.
+                None => home
+                    .as_ref()
+                    .map(|h| self.restore_home(&id, h))
+                    .unwrap_or(false),
+            };
+            // 3. Failing both, `adopt_orphans` drops it in the first group.
+            let _ = placed;
+
+            // Either way, flash the tab so it's obvious where it landed.
+            self.flash = Some((id, Instant::now()));
         }
         self.drop_unknown();
         self.adopt_orphans();
@@ -755,6 +825,15 @@ impl Widget for DockArea {
         let s = crate::text::scale();
         let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
 
+        // Expire a finished flash.
+        let flash = match &self.flash {
+            Some((_, started)) if started.elapsed().as_secs_f32() >= FLASH_SECS => {
+                self.flash = None;
+                None
+            }
+            other => other.clone(),
+        };
+
         for (gi, group) in self.groups.iter().enumerate() {
             let strip = super::absolute(bounds, group.strip);
             scene.rect(strip, p.surface_variant);
@@ -775,6 +854,22 @@ impl Widget for DockArea {
                     );
                 } else if self.hovered_tab == Some((gi, ti)) {
                     scene.push_rect(RectShape::fill(tab, p.hover));
+                }
+
+                // A just-docked panel flashes, so it is obvious where it landed
+                // (especially when it auto-docked rather than being dropped).
+                if let Some((flash_id, started)) = &flash {
+                    if flash_id == id {
+                        let t = started.elapsed().as_secs_f32() / FLASH_SECS;
+                        if t < 1.0 {
+                            scene.push_rect(
+                                RectShape::fill(tab, p.accent.with_alpha((1.0 - t) * 0.55))
+                                    .with_corner_radius(cx.theme.radius.sm),
+                            );
+                            // Keep frames coming until the flash finishes.
+                            crate::anim::request_frame();
+                        }
+                    }
                 }
 
                 let color = if active { p.text } else { p.text_muted };
@@ -1469,6 +1564,9 @@ impl DockArea {
     /// Remove a panel from the layout tree AND the registry, handing back owned
     /// content. This is what makes detaching cheap: the widget simply moves.
     fn take_panel(&mut self, id: &str) -> Option<Panel> {
+        // Remember where it lived BEFORE the tree is pruned.
+        let home = find_home(&self.root, id);
+
         let known: Vec<String> = self
             .panels
             .keys()
@@ -1478,7 +1576,23 @@ impl DockArea {
         retain_panels(&mut self.root, &known);
         let root = std::mem::replace(&mut self.root, DockNode::tabs(Vec::<String>::new()));
         self.root = prune(root).unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
-        self.panels.remove(id)
+
+        let mut panel = self.panels.remove(id)?;
+        panel.home = home;
+        Some(panel)
+    }
+
+    /// Put a panel back where it came from, if that group still exists.
+    fn restore_home(&mut self, id: &str, home: &Home) -> bool {
+        if home.neighbors.is_empty() {
+            return false; // it was alone; its group is gone
+        }
+        let mut path = Vec::new();
+        let Some(path) = find_group_with_any(&self.root, &home.neighbors, &mut path) else {
+            return false;
+        };
+        insert_tab(&mut self.root, &path, home.index, id.to_string());
+        true
     }
 
     fn close_panel(&mut self, id: &str) {
@@ -1831,6 +1945,70 @@ mod tests {
         let returned = take_redock();
         assert_eq!(returned.len(), 1);
         assert_eq!(returned[0].0.id, "a");
+    }
+
+    /// Docking back with no explicit drop target must return the panel to the
+    /// group it came from — not dump it in whatever group happens to be first.
+    #[test]
+    fn docking_back_returns_the_panel_to_the_group_it_left() {
+        // [ tabs(outliner) | tabs(viewport, hex) ]  -- pull `hex` out of group 1.
+        let mut dock = DockArea::new(DockNode::split(
+            DockAxis::Horizontal,
+            vec![
+                DockNode::tabs(["outliner"]),
+                DockNode::tabs(["viewport", "hex"]),
+            ],
+        ))
+        .panel(Panel::new("outliner", "Outliner", Null))
+        .panel(Panel::new("viewport", "Viewport", Null))
+        .panel(Panel::new("hex", "Hex", Null));
+
+        let taken = dock.take_panel("hex").expect("hex detaches");
+        let home = taken.home.clone().expect("its home is recorded");
+        assert_eq!(home.neighbors, vec!["viewport"]);
+        assert_eq!(home.index, 1);
+        assert_eq!(ids(&dock.root), vec!["outliner", "viewport"]);
+
+        // Dock back with no target: it must rejoin `viewport`, not `outliner`.
+        dock.panels.insert("hex".into(), taken);
+        assert!(dock.restore_home("hex", &home));
+        assert_eq!(ids(&dock.root), vec!["outliner", "viewport", "hex"]);
+
+        // ...and specifically into the SECOND group (the one it left).
+        match &dock.root {
+            DockNode::Split { children, .. } => {
+                assert_eq!(ids(&children[0]), vec!["outliner"]);
+                assert_eq!(ids(&children[1]), vec!["viewport", "hex"]);
+            }
+            _ => panic!("expected the split to survive"),
+        }
+    }
+
+    /// The anchor is the SIBLINGS, not a path — because pulling a panel out can
+    /// prune the tree and invalidate paths.
+    #[test]
+    fn home_survives_the_tree_being_reshaped() {
+        let mut dock = DockArea::new(DockNode::split(
+            DockAxis::Horizontal,
+            vec![
+                DockNode::tabs(["a"]),
+                DockNode::tabs(["b", "c"]),
+            ],
+        ))
+        .panel(Panel::new("a", "A", Null))
+        .panel(Panel::new("b", "B", Null))
+        .panel(Panel::new("c", "C", Null));
+
+        let c = dock.take_panel("c").unwrap();
+        let home = c.home.clone().unwrap();
+        // Now close `a`: its group is pruned and the split COLLAPSES, so any path
+        // recorded for c's old group would now be wrong.
+        dock.close_panel("a");
+        assert!(matches!(dock.root, DockNode::Tabs { .. }));
+
+        dock.panels.insert("c".into(), c);
+        assert!(dock.restore_home("c", &home), "sibling anchor still resolves");
+        assert_eq!(ids(&dock.root), vec!["b", "c"]);
     }
 
     /// A cross-window drop carries its claim (path + zone) with the panel, so the
