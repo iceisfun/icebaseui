@@ -139,6 +139,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cmd(last_action, "create.sphere.opts", "Sphere Options…", "Create", glyphs::GEAR, orange, None);
     cmd(last_action, "create.plane", "Create Plane", "Create", gis::LAYERS, orange, None);
     cmd(last_action, "create.plane.opts", "Plane Options…", "Create", glyphs::GEAR, orange, None);
+    // Global text scale — commands, so they work from the menu, a shortcut, and
+    // the Command Palette alike.
+    command::register(
+        CommandMeta::new("view.text.inc", "Increase Text Size")
+            .category("View")
+            .icon(glyphs::CIRCLE)
+            .color(blue)
+            .shortcut("Ctrl+="),
+        || baseui::text::set_scale(baseui::text::scale() + 0.1),
+    );
+    command::register(
+        CommandMeta::new("view.text.dec", "Decrease Text Size")
+            .category("View")
+            .icon(glyphs::CIRCLE_OUTLINE)
+            .color(blue)
+            .shortcut("Ctrl+-"),
+        || baseui::text::set_scale(baseui::text::scale() - 0.1),
+    );
+    command::register(
+        CommandMeta::new("view.text.reset", "Reset Text Size")
+            .category("View")
+            .icon(glyphs::DOT)
+            .color(blue)
+            .shortcut("Ctrl+0"),
+        || baseui::text::set_scale(1.0),
+    );
+
     cmd(last_action, "view.grid", "Toggle Grid", "View", gis::LAYER, green, Some("G"));
     cmd(last_action, "view.measure", "Measure Tool", "View", gis::MEASURE, green, Some("M"));
     cmd(last_action, "view.point", "Point Tool", "View", gis::POINT, green, Some("P"));
@@ -163,6 +190,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Menu::new("Edit")
                 .item("Undo", || command::run("edit.undo"))
                 .item("Redo", || command::run("edit.redo")),
+        )
+        .menu(
+            Menu::new("View")
+                .item_icon(glyphs::CIRCLE, "Increase Text Size", || {
+                    command::run("view.text.inc")
+                })
+                .item_icon(glyphs::CIRCLE_OUTLINE, "Decrease Text Size", || {
+                    command::run("view.text.dec")
+                })
+                .item_icon(glyphs::DOT, "Reset Text Size", || {
+                    command::run("view.text.reset")
+                }),
         )
         .menu(Menu::new("Help").item_icon(glyphs::STAR, "Command Palette  (F1)", || {}));
 
@@ -331,6 +370,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .item(StatusItem::dynamic(move || last_action.get()).icon(glyphs::CHECK).color(green))
         .item(StatusItem::dynamic(move || format!("Selection: {}", selected.get())))
         .item(StatusItem::new("Press F1 for commands").right().color(blue))
+        .item(StatusItem::dynamic(|| {
+            format!("Text {:.0}%", baseui::text::scale() * 100.0)
+        })
+        .right())
         .item(StatusItem::new("BaseUI M7").right());
 
     // --- Frame ------------------------------------------------------------

@@ -20,6 +20,21 @@ const INDENT: f32 = 14.0;
 const ARROW_W: f32 = 14.0;
 const ICON_W: f32 = 14.0;
 
+// Row metrics scale with the global text scale. These are used by BOTH paint and
+// hit-testing, so they must agree.
+fn indent() -> f32 {
+    INDENT * crate::text::scale()
+}
+fn arrow_w() -> f32 {
+    ARROW_W * crate::text::scale()
+}
+fn icon_w() -> f32 {
+    ICON_W * crate::text::scale()
+}
+fn action_slot() -> f32 {
+    ACTION_SLOT * crate::text::scale()
+}
+
 /// One node in a [`TreeView`]. Build leaves with [`TreeNode::leaf`] and parents
 /// with [`TreeNode::branch`].
 pub struct TreeNode {
@@ -151,7 +166,7 @@ const ACTION_SLOT: f32 = 22.0;
 
 /// The x of the leftmost action slot for a row with `n` actions.
 fn actions_start_x(bounds: Rect, pad: f32, n: usize) -> f32 {
-    bounds.right() - pad - n as f32 * ACTION_SLOT
+    bounds.right() - pad - n as f32 * action_slot()
 }
 
 /// The "/"-joined label path of a node under `prefix`.
@@ -256,7 +271,7 @@ impl TreeView {
 
 impl Widget for TreeView {
     fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
-        self.row_h = cx.fonts.line_height(self.font_size, FontId::Ui) + 8.0;
+        self.row_h = cx.fonts.line_height(self.font_size, FontId::Ui) + 8.0 * crate::text::scale();
         self.rows.clear();
         flatten(&self.roots, 0, &mut self.rows);
 
@@ -284,7 +299,7 @@ impl Widget for TreeView {
                 scene.rounded_rect(row_rect, p.hover, radius);
             }
 
-            let base_x = bounds.left() + cx.theme.spacing.sm + row.depth as f32 * INDENT;
+            let base_x = bounds.left() + cx.theme.spacing.sm + row.depth as f32 * indent();
             let text_y = y + (self.row_h - cx.fonts.line_height(self.font_size, FontId::Ui)) * 0.5;
 
             // Expand/collapse arrow.
@@ -294,7 +309,7 @@ impl Widget for TreeView {
             }
 
             // Type icon: a glyph if provided, else a colored dot.
-            let icon_x = base_x + ARROW_W;
+            let icon_x = base_x + arrow_w();
             let icon_color = row.icon_color.unwrap_or(p.text_muted);
             if let Some(icon) = row.icon {
                 scene.text_font(
@@ -305,7 +320,7 @@ impl Widget for TreeView {
                     icon.font_id(),
                 );
             } else {
-                let dot = 9.0;
+                let dot = 9.0 * crate::text::scale();
                 scene.rounded_rect(
                     Rect::from_xywh(icon_x, y + (self.row_h - dot) * 0.5, dot, dot),
                     icon_color,
@@ -314,7 +329,7 @@ impl Widget for TreeView {
             }
 
             // Label.
-            let label_x = icon_x + ICON_W + cx.theme.spacing.xs;
+            let label_x = icon_x + icon_w() + cx.theme.spacing.xs;
             scene.text(
                 Point::new(label_x, text_y),
                 row.label.clone(),
@@ -326,10 +341,10 @@ impl Widget for TreeView {
             if !row.actions.is_empty() {
                 let start = actions_start_x(bounds, cx.theme.spacing.sm, row.actions.len());
                 for (k, action) in row.actions.iter().enumerate() {
-                    let slot_left = start + k as f32 * ACTION_SLOT;
+                    let slot_left = start + k as f32 * action_slot();
                     let font = action.icon.font_id();
                     let gw = cx.fonts.char_advance(action.icon.ch(), self.font_size, font);
-                    let gx = slot_left + (ACTION_SLOT - gw) * 0.5;
+                    let gx = slot_left + (action_slot() - gw) * 0.5;
                     let color = if action.enabled {
                         action.color
                     } else {
@@ -375,7 +390,7 @@ impl Widget for TreeView {
                 if n_actions > 0 {
                     let start = actions_start_x(bounds, cx.theme.spacing.sm, n_actions);
                     if pos.x >= start {
-                        let k = ((pos.x - start) / ACTION_SLOT) as usize;
+                        let k = ((pos.x - start) / action_slot()) as usize;
                         if k < n_actions {
                             self.toggle_action(id, k);
                             return;
@@ -384,8 +399,8 @@ impl Widget for TreeView {
                 }
 
                 // Arrow hit-box toggles expansion; anywhere else selects.
-                let arrow_x = bounds.left() + cx.theme.spacing.sm + row_depth as f32 * INDENT;
-                if has_children && pos.x >= arrow_x && pos.x < arrow_x + ARROW_W {
+                let arrow_x = bounds.left() + cx.theme.spacing.sm + row_depth as f32 * indent();
+                if has_children && pos.x >= arrow_x && pos.x < arrow_x + arrow_w() {
                     self.toggle(id);
                 } else {
                     self.selected = Some(id);

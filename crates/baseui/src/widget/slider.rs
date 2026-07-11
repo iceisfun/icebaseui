@@ -11,6 +11,18 @@ use crate::layout::Constraints;
 const HEIGHT: f32 = 22.0;
 const TRACK_H: f32 = 6.0;
 const THUMB_R: f32 = 8.0;
+
+// Chrome sizes scale with the global text scale so the control stays
+// proportional to the text around it.
+fn height() -> f32 {
+    HEIGHT * crate::text::scale()
+}
+fn track_h() -> f32 {
+    TRACK_H * crate::text::scale()
+}
+fn thumb_r() -> f32 {
+    THUMB_R * crate::text::scale()
+}
 const DEFAULT_WIDTH: f32 = 200.0;
 
 /// A horizontal slider bound to a `Signal<f32>` over `[min, max]`.
@@ -54,8 +66,8 @@ impl Slider {
     }
 
     fn apply_from_x(&self, x: f32, bounds: Rect) {
-        let left = bounds.left() + THUMB_R;
-        let track_w = (bounds.width() - THUMB_R * 2.0).max(1.0);
+        let left = bounds.left() + thumb_r();
+        let track_w = (bounds.width() - thumb_r() * 2.0).max(1.0);
         let t = ((x - left) / track_w).clamp(0.0, 1.0);
         self.value.set(self.min + t * (self.max - self.min));
     }
@@ -64,31 +76,32 @@ impl Slider {
 impl Widget for Slider {
     fn layout(&mut self, _cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
         let w = self.width.min(constraints.max.width);
-        constraints.constrain(Size::new(w, HEIGHT))
+        constraints.constrain(Size::new(w, height()))
     }
 
     fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene) {
         let p = &cx.theme.palette;
         let cy = bounds.top() + bounds.height() * 0.5;
-        let left = bounds.left() + THUMB_R;
-        let track_w = (bounds.width() - THUMB_R * 2.0).max(1.0);
+        let left = bounds.left() + thumb_r();
+        let track_w = (bounds.width() - thumb_r() * 2.0).max(1.0);
 
         // Track.
         scene.rounded_rect(
-            Rect::from_xywh(left, cy - TRACK_H * 0.5, track_w, TRACK_H),
+            Rect::from_xywh(left, cy - track_h() * 0.5, track_w, track_h()),
             p.surface_variant,
-            TRACK_H * 0.5,
+            track_h() * 0.5,
         );
         // Filled portion.
         let frac = self.fraction();
         scene.rounded_rect(
-            Rect::from_xywh(left, cy - TRACK_H * 0.5, track_w * frac, TRACK_H),
+            Rect::from_xywh(left, cy - track_h() * 0.5, track_w * frac, track_h()),
             p.accent,
-            TRACK_H * 0.5,
+            track_h() * 0.5,
         );
         // Thumb.
         let tx = left + track_w * frac;
-        let thumb = Rect::from_xywh(tx - THUMB_R, cy - THUMB_R, THUMB_R * 2.0, THUMB_R * 2.0);
+        let r = thumb_r();
+        let thumb = Rect::from_xywh(tx - r, cy - r, r * 2.0, r * 2.0);
         let thumb_color = if self.dragging {
             p.accent
         } else if self.hovered {
@@ -98,7 +111,7 @@ impl Widget for Slider {
         };
         scene.push_rect(
             RectShape::fill(thumb, thumb_color)
-                .with_corner_radius(THUMB_R)
+                .with_corner_radius(thumb_r())
                 .with_border(1.0, p.border),
         );
     }

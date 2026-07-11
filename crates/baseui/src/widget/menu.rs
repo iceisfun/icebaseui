@@ -102,6 +102,18 @@ impl Menu {
 const SEPARATOR_H: f32 = 7.0;
 const MENU_MIN_W: f32 = 150.0;
 
+// Dropdown metrics scale with the global text scale (used by both paint and
+// hit-testing, so they must agree).
+fn separator_h() -> f32 {
+    SEPARATOR_H * crate::text::scale()
+}
+fn menu_min_w() -> f32 {
+    MENU_MIN_W * crate::text::scale()
+}
+fn options_w() -> f32 {
+    OPTIONS_W * crate::text::scale()
+}
+
 /// The top menu bar.
 pub struct MenuBar {
     menus: Vec<Menu>,
@@ -151,10 +163,11 @@ impl MenuBar {
     fn dropdown(&self, fonts: &crate::text::Fonts, bounds: Rect, index: usize) -> (Rect, Vec<Rect>) {
         let menu = &self.menus[index];
         let line_h = fonts.line_height(self.font_size, FontId::Ui);
-        let item_h = line_h + 8.0;
-        let pad = 10.0;
+        let s = crate::text::scale();
+        let item_h = line_h + 8.0 * s;
+        let pad = 10.0 * s;
 
-        let mut width = MENU_MIN_W;
+        let mut width = menu_min_w();
         for entry in &menu.entries {
             if let Entry::Item {
                 icon, label, options, ..
@@ -165,7 +178,7 @@ impl MenuBar {
                     w += fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + 8.0;
                 }
                 if options.is_some() {
-                    w += OPTIONS_W;
+                    w += options_w();
                 }
                 width = width.max(w);
             }
@@ -180,7 +193,7 @@ impl MenuBar {
         for entry in &menu.entries {
             let h = match entry {
                 Entry::Item { .. } => item_h,
-                Entry::Separator => SEPARATOR_H,
+                Entry::Separator => separator_h(),
             };
             rects.push(Rect::from_xywh(panel_x, y, width, h));
             y += h;
@@ -261,7 +274,7 @@ impl Widget for MenuBar {
                             );
                         }
                         let ty = r.top() + (r.height() - line_h) * 0.5;
-                        let mut tx = r.left() + 10.0;
+                        let mut tx = r.left() + 10.0 * crate::text::scale();
                         if let Some(icon) = icon {
                             scene.text_font(
                                 Point::new(tx, ty),
@@ -276,7 +289,7 @@ impl Widget for MenuBar {
                         scene.text(Point::new(tx, ty), label.clone(), self.font_size, p.text);
                         if options.is_some() {
                             // Right-aligned options gear.
-                            let gx = r.right() - OPTIONS_W + 6.0;
+                            let gx = r.right() - options_w() + 6.0 * crate::text::scale();
                             scene.text_font(
                                 Point::new(gx, ty),
                                 glyphs::GEAR.ch().to_string(),
@@ -355,7 +368,7 @@ impl Widget for MenuBar {
                         if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos)
                         {
                             // Right options-gear zone vs the rest of the row.
-                            let on_options = pos.x >= r.right() - OPTIONS_W;
+                            let on_options = pos.x >= r.right() - options_w();
                             hit = Some((k, on_options));
                             break;
                         }

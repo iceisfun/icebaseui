@@ -11,6 +11,11 @@ use crate::text::FontId;
 
 const BOX: f32 = 18.0;
 
+/// The box size, scaled by the global text scale.
+fn box_size() -> f32 {
+    BOX * crate::text::scale()
+}
+
 /// A labelled checkbox. Reads and writes a `Signal<bool>`, so toggling it
 /// repaints everything bound to that signal.
 ///
@@ -45,7 +50,8 @@ impl Widget for Checkbox {
     fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
         let text = cx.fonts.measure(&self.label, self.font_size, FontId::Ui);
         let gap = cx.theme.spacing.md;
-        let size = Size::new(BOX + gap + text.width, BOX.max(text.height));
+        let b = box_size();
+        let size = Size::new(b + gap + text.width, b.max(text.height));
         constraints.constrain(size)
     }
 
@@ -56,9 +62,9 @@ impl Widget for Checkbox {
 
         let box_rect = Rect::from_xywh(
             bounds.left(),
-            bounds.top() + (bounds.height() - BOX) * 0.5,
-            BOX,
-            BOX,
+            bounds.top() + (bounds.height() - box_size()) * 0.5,
+            box_size(),
+            box_size(),
         );
 
         // The box: accent-filled when checked, otherwise a bordered surface.
@@ -77,7 +83,7 @@ impl Widget for Checkbox {
 
         // A simple check indicator: an inset mark drawn in the on-accent color.
         if checked {
-            let inset = box_rect.shrink(baseui_core::Insets::all(5.0));
+            let inset = box_rect.shrink(baseui_core::Insets::all(5.0 * crate::text::scale()));
             scene.rounded_rect(inset, p.on_accent, radius * 0.5);
         }
 

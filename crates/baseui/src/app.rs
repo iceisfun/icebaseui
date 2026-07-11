@@ -69,7 +69,11 @@ struct WindowState {
 /// attach UI via [`App::with_root`] or [`App::on_frame`], then [`App::run`].
 pub struct App {
     config: WindowConfig,
+    /// The theme as configured; `theme` is this scaled by the global text scale.
+    base_theme: Theme,
     theme: Theme,
+    /// Text scale the active `theme` was derived at.
+    applied_scale: f32,
     root: Option<Box<dyn Widget>>,
     ui: Option<UiFn>,
     scene: Scene,
@@ -93,7 +97,9 @@ impl App {
     pub fn new() -> Self {
         App {
             config: WindowConfig::default(),
+            base_theme: Theme::default(),
             theme: Theme::default(),
+            applied_scale: 1.0,
             root: None,
             ui: None,
             scene: Scene::new(),
@@ -130,8 +136,27 @@ impl App {
 
     /// Set the active theme.
     pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.base_theme = theme.clone();
         self.theme = theme;
         self
+    }
+
+    /// Set the initial global text scale (`1.0` = 100%). Can be changed at any
+    /// time with [`text::set_scale`](crate::text::set_scale); the App re-derives
+    /// the active theme and repaints. Persisted when persistence is enabled.
+    pub fn with_text_scale(self, scale: f32) -> Self {
+        crate::text::set_scale(scale);
+        self
+    }
+
+    /// Re-derive the active theme when the global text scale has changed, so
+    /// spacing and radii stay proportional to the scaled font sizes.
+    fn refresh_theme(&mut self) {
+        let scale = crate::text::scale();
+        if (scale - self.applied_scale).abs() > f32::EPSILON {
+            self.theme = self.base_theme.scaled(scale);
+            self.applied_scale = scale;
+        }
     }
 
     /// Attach a retained widget tree as the application root.
@@ -168,6 +193,7 @@ impl App {
     /// Route a normalized input event to the widget tree, then request a redraw
     /// (interaction may have changed visual state or signal-backed state).
     fn dispatch(&mut self, event: InputEvent) {
+        self.refresh_theme();
         let bounds = self.root_bounds();
         if let (Some(root), Some(fonts)) = (self.root.as_mut(), self.fonts.as_ref()) {
             let mut cx = EventCx::new(fonts, &self.theme);
@@ -197,6 +223,7 @@ impl App {
             self.store.set("window.width", &(size.width as f64));
             self.store.set("window.height", &(size.height as f64));
         }
+        self.store.set("ui.text_scale", &crate::text::scale());
         self.store.save();
     }
 
@@ -259,6 +286,7 @@ impl App {
 
     /// Rebuild the scene (widget tree or raw callback) and draw a frame.
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        self.refresh_theme();
         let Some(state) = self.state.as_mut() else {
             return;
         };
@@ -370,6 +398,9 @@ impl ApplicationHandler for App {
         // Load persisted state (and window geometry) before creating the window.
         if let Some(path) = &self.persist_path {
             self.store = crate::persist::Store::load(path);
+            if let Some(scale) = self.store.get::<f32>("ui.text_scale") {
+                crate::text::set_scale(scale);
+            }
         }
         let mut win_w = self.config.width as f64;
         let mut win_h = self.config.height as f64;

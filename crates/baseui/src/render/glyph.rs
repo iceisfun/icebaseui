@@ -144,7 +144,11 @@ impl GlyphRenderer {
             return; // font (e.g. an unregistered icon font) not loaded
         };
 
-        let px = (shape.size * scale).round().max(1.0);
+        // The global text scale must be applied here exactly as it is in
+        // `Fonts` measurement, or the caret/hit-testing would drift from what is
+        // actually drawn. `scale` is the DPI (logical -> physical) factor.
+        let logical_size = shape.size * crate::text::scale();
+        let px = (logical_size * scale).round().max(1.0);
         let px_scale = PxScale::from(px);
         let scaled = font.as_scaled(px_scale);
         let ascent = scaled.ascent();

@@ -110,11 +110,12 @@ impl Widget for ScrollArea {
             let thumb_h = (track_h * (self.viewport.height / self.content_height)).max(24.0);
             let t = self.offset / max;
             let thumb_y = bounds.top() + t * (track_h - thumb_h);
-            let x = bounds.right() - BAR_WIDTH - 2.0;
+            let bar_w = BAR_WIDTH * crate::text::scale();
+            let x = bounds.right() - bar_w - 2.0;
             scene.rounded_rect(
-                Rect::from_xywh(x, thumb_y, BAR_WIDTH, thumb_h),
+                Rect::from_xywh(x, thumb_y, bar_w, thumb_h),
                 p.border,
-                BAR_WIDTH * 0.5,
+                bar_w * 0.5,
             );
         }
     }
@@ -122,7 +123,8 @@ impl Widget for ScrollArea {
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
         if let InputEvent::Scroll { pos, delta } = event {
             if bounds.contains(*pos) {
-                self.offset = (self.offset - delta.y * LINE_PIXELS).clamp(0.0, self.max_offset());
+                let step = LINE_PIXELS * crate::text::scale();
+                self.offset = (self.offset - delta.y * step).clamp(0.0, self.max_offset());
                 return;
             }
         }

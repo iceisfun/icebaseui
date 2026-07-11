@@ -158,10 +158,11 @@ impl Widget for TabView {
                     Rect::from_xywh(0.0, self.strip_size, w, (h - self.strip_size).max(0.0));
             }
             TabStrip::Left => {
-                self.strip_size = RAIL_W;
+                self.strip_size = RAIL_W * crate::text::scale();
+                let item_h = RAIL_ITEM_H * crate::text::scale();
                 for (i, tab) in self.tabs.iter_mut().enumerate() {
                     tab.header_rect =
-                        Rect::from_xywh(0.0, i as f32 * RAIL_ITEM_H, RAIL_W, RAIL_ITEM_H);
+                        Rect::from_xywh(0.0, i as f32 * item_h, self.strip_size, item_h);
                 }
                 self.content_rect =
                     Rect::from_xywh(self.strip_size, 0.0, (w - self.strip_size).max(0.0), h);

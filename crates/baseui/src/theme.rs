@@ -153,6 +153,32 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// A copy of this theme with its **spacing, radii, and type sizes** scaled by
+    /// `factor`, so chrome stays proportional to a scaled font size.
+    ///
+    /// [`App`](crate::App) derives the active theme this way from the global
+    /// [text scale](crate::text::scale); colors and motion are left alone.
+    pub fn scaled(&self, factor: f32) -> Theme {
+        let mut theme = self.clone();
+        let s = |v: f32| v * factor;
+        theme.spacing = Spacing {
+            xs: s(self.spacing.xs),
+            sm: s(self.spacing.sm),
+            md: s(self.spacing.md),
+            lg: s(self.spacing.lg),
+            xl: s(self.spacing.xl),
+        };
+        theme.radius = Radius {
+            sm: s(self.radius.sm),
+            md: s(self.radius.md),
+            lg: s(self.radius.lg),
+        };
+        theme.typography.size = s(self.typography.size);
+        theme.typography.size_small = s(self.typography.size_small);
+        theme.typography.size_heading = s(self.typography.size_heading);
+        theme
+    }
+
     /// The default dark theme.
     pub fn dark() -> Self {
         Theme {

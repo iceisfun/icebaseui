@@ -4,9 +4,11 @@ A modern, extensible **desktop UI framework** for engineering applications —
 IDEs, debuggers, visualization tools, editors, CAD software, and custom internal
 apps. Written in Rust.
 
-> Status: **early foundation.** The core primitives, reactive runtime, theme
-> engine, and a wgpu window shell are in place. The widget system, layout
-> engine, and flagship widgets (TreeView, PropertyView) are next.
+> Status: **M1–M7 complete.** Rendering (wgpu SDF painter + glyph/icon atlas),
+> the retained + reactive widget tree, layout, pointer & keyboard input, the full
+> widget set (TreeView, PropertyView, HexView, TextBox, ComboBox, tabs, resizable
+> splits), the app frame (menu/toolbar/status), and the systems layer (commands +
+> Command Palette, shortcuts, event bus, persistence). Next: M8 extensibility.
 
 ## Architecture decisions
 
@@ -29,7 +31,7 @@ baseui/
 │   │   └── reactive     # signals, memos, effects (the reactive runtime)
 │   └── baseui/          # the framework crate (winit + wgpu)
 │       ├── theme        # design tokens: palette, spacing, radius, type, motion
-│       ├── text         # fonts (UI + mono) + text measurement
+│       ├── text         # fonts (UI + mono), measurement, global text scale
 │       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
@@ -39,6 +41,7 @@ baseui/
 │       ├── persist      # JSON UI-state store (layout persistence)
 │       ├── focus        # keyboard focus (thread-local)
 │       ├── clipboard    # system clipboard (text)
+│       ├── popup        # popup modality (keyboard capture)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, TextBox, ComboBox, HexView,
 │       │                #   ScrollArea, TreeView, PropertyView, TabView, Split,

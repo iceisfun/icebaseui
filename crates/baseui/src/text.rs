@@ -10,12 +10,38 @@
 //! e.g. the feature-gated `font-gis` pack — map glyphs onto private-use code
 //! points; see [`crate::icon`].
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use ab_glyph::{Font, FontVec, PxScale, ScaleFont};
 use baseui_core::Size;
 
 pub use baseui_core::FontId;
+
+/// Smallest / largest allowed global text scale.
+pub const MIN_SCALE: f32 = 0.5;
+pub const MAX_SCALE: f32 = 3.0;
+
+thread_local! {
+    static TEXT_SCALE: Cell<f32> = const { Cell::new(1.0) };
+}
+
+/// Set the **global text scale** — a multiplier applied to every font size, in
+/// both measurement ([`Fonts`]) and rasterization (the glyph atlas).
+///
+/// Because widgets size themselves from measured text, scaling here also grows
+/// rows, buttons, fields, headers, and the hex grid; the theme's spacing and
+/// radii are scaled to match by [`Theme::scaled`](crate::theme::Theme::scaled),
+/// which [`App`](crate::App) applies for you. Clamped to
+/// [`MIN_SCALE`]..=[`MAX_SCALE`].
+pub fn set_scale(scale: f32) {
+    TEXT_SCALE.with(|s| s.set(scale.clamp(MIN_SCALE, MAX_SCALE)));
+}
+
+/// The current global text scale (`1.0` = 100%).
+pub fn scale() -> f32 {
+    TEXT_SCALE.with(|s| s.get())
+}
 
 /// The loaded font faces plus measurement helpers.
 pub struct Fonts {
@@ -63,14 +89,17 @@ impl Fonts {
     }
 
     /// Height of a single line at `size` logical px (ascent − descent + line gap).
+    /// `size` is multiplied by the [global text scale](scale).
     pub fn line_height(&self, size: f32, id: FontId) -> f32 {
-        let scaled = self.face_or_ui(id).as_scaled(PxScale::from(size));
+        let scaled = self.face_or_ui(id).as_scaled(PxScale::from(size * scale()));
         scaled.height() + scaled.line_gap()
     }
 
     /// Distance from the layout-box top to the text baseline at `size`.
     pub fn ascent(&self, size: f32, id: FontId) -> f32 {
-        self.face_or_ui(id).as_scaled(PxScale::from(size)).ascent()
+        self.face_or_ui(id)
+            .as_scaled(PxScale::from(size * scale()))
+            .ascent()
     }
 
     /// Advance width of a single character (useful for monospace grids).
@@ -78,7 +107,7 @@ impl Fonts {
         let Some(font) = self.face(id) else {
             return 0.0;
         };
-        font.as_scaled(PxScale::from(size))
+        font.as_scaled(PxScale::from(size * scale()))
             .h_advance(font.glyph_id(ch))
     }
 
@@ -88,7 +117,7 @@ impl Fonts {
         let Some(font) = self.face(id) else {
             return Size::ZERO;
         };
-        let scaled = font.as_scaled(PxScale::from(size));
+        let scaled = font.as_scaled(PxScale::from(size * scale()));
         let line_h = scaled.height() + scaled.line_gap();
 
         let mut max_w = 0.0f32;
