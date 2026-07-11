@@ -46,7 +46,9 @@ impl ComboBox {
     }
 
     fn selected_index(&self) -> usize {
-        self.selected.get().min(self.options.len().saturating_sub(1))
+        self.selected
+            .get()
+            .min(self.options.len().saturating_sub(1))
     }
 }
 

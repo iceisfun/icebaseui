@@ -274,7 +274,10 @@ impl Widget for Split {
                 button: PointerButton::Primary,
             } if draggable => {
                 for i in 0..self.gutter_rects.len() {
-                    if absolute(bounds, self.gutter_rects[i]).expand(pad).contains(*pos) {
+                    if absolute(bounds, self.gutter_rects[i])
+                        .expand(pad)
+                        .contains(*pos)
+                    {
                         // Resize an adjacent fixed pane; the flex pane absorbs it.
                         if matches!(self.panes[i].mode, Mode::Fixed(_)) {
                             self.drag = Some(Drag {

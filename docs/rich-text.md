@@ -1,10 +1,19 @@
 # Rich / marked-up text — design plan
 
-> Status: **planning.** M3 lays the prerequisites (monospace font, text
-> measurement, run-based drawing); the styled-layout engine and decoration
-> primitives below are implemented in a later milestone. Nothing here is
-> required for basic labels/buttons, which keep using the simple
-> `paint::TextShape`.
+> Status: **partly built.**
+>
+> - **Decorations are done** — `paint::Decoration` (`Underline` / `Squiggle` /
+>   `Strikethrough`) and the `MODE_SQUIGGLE` shader path ship today. Use-cases 1,
+>   2 and 3 below are all buildable.
+> - **`TextArea`** ([`widget/textarea.rs`]) is the first consumer: per-line
+>   colored spans from a pluggable highlighter, plus squiggled diagnostics.
+> - **Still planning:** the `StyledText`/`TextLayout` galley engine — i.e.
+>   use-case 4 with **soft wrapping in a proportional font**. That is the one
+>   piece that genuinely needs it, and nothing below it is blocked on it.
+>
+> The reason the split falls here: without wrapping, every x-position on a line
+> is a *prefix sum of advances*, so caret, hit-testing, and run placement are all
+> one cheap pass. Wrapping is what forces a real layout cache.
 
 ## Motivating use cases
 
@@ -104,15 +113,24 @@ No new pipeline, no new bind group — only additional `mode` branches and insta
 - Large buffers: only the visible rows are turned into a `TextLayout` each frame
   (virtualized), so cost is bound by viewport, not file size.
 
-## What M3 puts in place now
+## What exists today
 
 - **Monospace font** loaded alongside the UI font (`Fonts { ui, mono }`),
-  selectable via the existing `TextShape.mono`.
-- **`Fonts::measure()` + line metrics** — the measurement primitive every layer
-  above depends on (also required by widget layout).
-- **Run-based drawing already works**: colored runs on one line = multiple
-  `TextShape`s positioned with `measure()`. The hex editor's coloring is buildable
-  at the app level today; only squiggles await the decoration primitive.
+  selectable via `TextShape.font`.
+- **`Fonts::measure()` + `char_advance()` + line metrics** — the measurement
+  primitives every layer above depends on.
+- **Run-based drawing**: colored runs on one line = several `TextShape`s
+  positioned by summing advances. `HexView` colors bytes this way; `TextArea`
+  colors syntax this way.
+- **The decoration primitive**: `Scene::squiggle()` / `Scene::underline()` /
+  `push_decoration()`. Underline and strikethrough flatten to plain rects;
+  squiggle gets its own shader mode, drawn analytically from
+  `abs(y - sin(x)) - thickness` with `fwidth()` anti-aliasing — no atlas, one
+  instance per run.
+- **`TextArea`**: multi-line editing, line numbers, selection, clipboard,
+  virtualized paint, `highlighter(|line| -> Vec<Span>)`, and
+  `checker(|doc| -> Vec<Diagnostic>)`.
 
-Deferred to a later milestone: `StyledText`/`TextStyle`, the cached `TextLayout`,
-hit-testing, and the `Decoration` primitive + shader modes.
+Still deferred: `StyledText`/`TextStyle`, the cached `TextLayout` galley, and
+soft wrapping with per-span font styles (bold/italic runs). A `TextArea` that
+wraps is the concrete thing that unlocks.

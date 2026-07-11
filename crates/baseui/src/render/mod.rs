@@ -23,13 +23,13 @@ mod quad;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use baseui_core::paint::{Command, Primitive, RectShape, Scene};
+use baseui_core::paint::{Command, Decoration, DecorationShape, Primitive, RectShape, Scene};
 use baseui_core::{Color, Rect, Size};
 use winit::window::Window;
 
 use crate::text::Fonts;
 use glyph::GlyphRenderer;
-use quad::{MODE_SHAPE, QuadInstance, QuadPipeline};
+use quad::{MODE_SHAPE, MODE_SQUIGGLE, QuadInstance, QuadPipeline};
 
 /// GPU state shared by every window: device, queue, pipeline, and glyph atlas.
 pub struct GpuContext {
@@ -252,6 +252,9 @@ impl GpuContext {
                             } = self;
                             glyphs.push_text(queue, window.scale, shape, clip, instances);
                         }
+                        Primitive::Decoration(shape) => {
+                            self.instances.push(decoration_instance(shape, clip));
+                        }
                     }
                 }
             }
@@ -364,6 +367,42 @@ fn rect_instance(shape: &RectShape, clip: Rect) -> QuadInstance {
         border_color: shape.border_color.to_linear(),
         clip: [clip.left(), clip.top(), clip.width(), clip.height()],
         params: [shape.corner_radius, shape.border_width, MODE_SHAPE, 0.0],
+    }
+}
+
+/// Build an instance for a text decoration.
+///
+/// Underline and strikethrough are just thin rects, so they reuse the shape
+/// path. A squiggle needs the wavy SDF, so it gets its own shader mode and the
+/// full band height (the shader draws the wave through the middle of it).
+fn decoration_instance(shape: &DecorationShape, clip: Rect) -> QuadInstance {
+    let clip = [clip.left(), clip.top(), clip.width(), clip.height()];
+    let color = shape.color.to_linear();
+    let r = shape.rect;
+
+    match shape.kind {
+        Decoration::Squiggle => QuadInstance {
+            rect: [r.left(), r.top(), r.width(), r.height()],
+            uv: [0.0; 4],
+            color,
+            border_color: [0.0; 4],
+            clip,
+            params: [shape.period, shape.thickness, MODE_SQUIGGLE, 0.0],
+        },
+        Decoration::Underline | Decoration::Strikethrough => {
+            let y = match shape.kind {
+                Decoration::Strikethrough => r.top() + r.height() * 0.5 - shape.thickness * 0.5,
+                _ => r.bottom() - shape.thickness,
+            };
+            QuadInstance {
+                rect: [r.left(), y, r.width(), shape.thickness],
+                uv: [0.0; 4],
+                color,
+                border_color: [0.0; 4],
+                clip,
+                params: [0.0, 0.0, MODE_SHAPE, 0.0],
+            }
+        }
     }
 }
 

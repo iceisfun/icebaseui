@@ -91,7 +91,12 @@ impl Widget for Checkbox {
         let text = cx.fonts.measure(&self.label, self.font_size, FontId::Ui);
         let ty = bounds.top() + (bounds.height() - text.height) * 0.5;
         let tx = box_rect.right() + cx.theme.spacing.md;
-        scene.text(Point::new(tx, ty), self.label.clone(), self.font_size, p.text);
+        scene.text(
+            Point::new(tx, ty),
+            self.label.clone(),
+            self.font_size,
+            p.text,
+        );
     }
 
     fn event(&mut self, _cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {

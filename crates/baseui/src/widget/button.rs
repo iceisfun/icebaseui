@@ -102,7 +102,12 @@ impl Widget for Button {
         let text_size = cx.fonts.measure(&self.label, self.font_size, FontId::Ui);
         let tx = bounds.left() + (bounds.width() - text_size.width) * 0.5;
         let ty = bounds.top() + (bounds.height() - text_size.height) * 0.5;
-        scene.text(Point::new(tx, ty), self.label.clone(), self.font_size, text_color);
+        scene.text(
+            Point::new(tx, ty),
+            self.label.clone(),
+            self.font_size,
+            text_color,
+        );
     }
 
     fn event(&mut self, _cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {

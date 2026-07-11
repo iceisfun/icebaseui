@@ -33,7 +33,11 @@ impl Stack {
         let avail_h = (constraints.max.height - self.padding.vertical()).max(0.0);
 
         // Main-axis cursor and cross-axis extent.
-        let mut cursor = if vertical { self.padding.top } else { self.padding.left };
+        let mut cursor = if vertical {
+            self.padding.top
+        } else {
+            self.padding.left
+        };
         let mut cross_max = 0.0f32;
         let count = self.children.len();
 

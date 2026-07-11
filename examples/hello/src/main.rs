@@ -126,7 +126,12 @@ fn draw_demo(scene: &mut Scene, frame: &Frame<'_>) {
     let status = Rect::from_xywh(0.0, h - status_h, w, status_h);
     scene.rect(status, p.surface);
     scene.rect(Rect::from_xywh(0.0, h - status_h, w, 1.0), p.border);
-    scene.text(Point::new(sp.lg, h - status_h + 5.0), "Ready", 12.0, p.success);
+    scene.text(
+        Point::new(sp.lg, h - status_h + 5.0),
+        "Ready",
+        12.0,
+        p.success,
+    );
     scene.text(
         Point::new(120.0, h - status_h + 5.0),
         "BaseUI M2 — painter online",

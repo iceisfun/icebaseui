@@ -377,7 +377,11 @@ mod tests {
         let r2 = runs.clone();
         create_effect(move || {
             r2.set(r2.get() + 1);
-            if toggle.get() { a.get() } else { b.get() };
+            if toggle.get() {
+                a.get()
+            } else {
+                b.get()
+            };
         });
         assert_eq!(runs.get(), 1);
 

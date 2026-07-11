@@ -55,11 +55,7 @@ impl Color {
                 let dup = |c: char| {
                     let mut buf = [0u8; 2];
                     let one = c.encode_utf8(&mut buf).as_bytes()[0];
-                    u8::from_str_radix(
-                        std::str::from_utf8(&[one, one]).ok()?,
-                        16,
-                    )
-                    .ok()
+                    u8::from_str_radix(std::str::from_utf8(&[one, one]).ok()?, 16).ok()
                 };
                 let mut chars = s.chars();
                 let r = dup(chars.next()?)?;

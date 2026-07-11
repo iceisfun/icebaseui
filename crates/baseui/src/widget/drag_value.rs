@@ -96,7 +96,10 @@ impl Widget for DragValue {
         };
         let text = cx.fonts.measure(&sample, self.font_size, FontId::Ui);
         let pad = cx.theme.spacing.md;
-        let size = Size::new(text.width + pad * 2.0, text.height + cx.theme.spacing.sm * 2.0);
+        let size = Size::new(
+            text.width + pad * 2.0,
+            text.height + cx.theme.spacing.sm * 2.0,
+        );
         constraints.constrain(size)
     }
 

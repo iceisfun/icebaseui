@@ -181,9 +181,13 @@ impl Widget for MenuBar {
         self.title_rects.clear();
         let mut x = cx.theme.spacing.sm;
         for menu in &self.menus {
-            let tw = cx.fonts.measure(&menu.title, self.font_size, FontId::Ui).width
+            let tw = cx
+                .fonts
+                .measure(&menu.title, self.font_size, FontId::Ui)
+                .width
                 + cx.theme.spacing.md * 2.0;
-            self.title_rects.push(Rect::from_xywh(x, 0.0, tw, self.bar_h));
+            self.title_rects
+                .push(Rect::from_xywh(x, 0.0, tw, self.bar_h));
             x += tw;
         }
 

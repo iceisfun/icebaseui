@@ -251,7 +251,6 @@ impl TreeView {
         self
     }
 
-
     /// Called with the label of a node when it becomes selected.
     pub fn on_select(mut self, f: impl FnMut(&str) + 'static) -> Self {
         self.on_select = Some(Box::new(f));
@@ -315,7 +314,8 @@ impl Widget for TreeView {
 
         for (i, row) in self.rows.iter().enumerate() {
             let y = bounds.top() + i as f32 * self.row_h;
-            let row_rect = Rect::from_xywh(bounds.left() + 2.0, y, bounds.width() - 4.0, self.row_h);
+            let row_rect =
+                Rect::from_xywh(bounds.left() + 2.0, y, bounds.width() - 4.0, self.row_h);
 
             // Selection / hover backgrounds.
             if self.selected == Some(row.id) {
@@ -330,7 +330,12 @@ impl Widget for TreeView {
             // Expand/collapse arrow.
             if row.has_children {
                 let arrow = if row.expanded { "\u{25BE}" } else { "\u{25B8}" };
-                scene.text(Point::new(base_x, text_y), arrow, self.font_size, p.text_muted);
+                scene.text(
+                    Point::new(base_x, text_y),
+                    arrow,
+                    self.font_size,
+                    p.text_muted,
+                );
             }
 
             // Type icon: a glyph if provided, else a colored dot.
@@ -368,7 +373,9 @@ impl Widget for TreeView {
                 for (k, action) in row.actions.iter().enumerate() {
                     let slot_left = start + k as f32 * action_slot();
                     let font = action.icon.font_id();
-                    let gw = cx.fonts.char_advance(action.icon.ch(), self.font_size, font);
+                    let gw = cx
+                        .fonts
+                        .char_advance(action.icon.ch(), self.font_size, font);
                     let gx = slot_left + (action_slot() - gw) * 0.5;
                     let color = if action.enabled {
                         action.color
@@ -394,9 +401,7 @@ impl Widget for TreeView {
         // consumes them, so a click in the popup can't also hit a row beneath.
         if self.context.is_open() {
             if let Some(activation) = self.context.event(cx, event) {
-                if let (Some(id), Some(handler)) =
-                    (self.context_target, self.on_context.as_mut())
-                {
+                if let (Some(id), Some(handler)) = (self.context_target, self.on_context.as_mut()) {
                     if let Some(label) = self
                         .rows
                         .iter()

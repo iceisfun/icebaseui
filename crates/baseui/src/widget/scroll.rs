@@ -78,7 +78,13 @@ impl Widget for ScrollArea {
     fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
         let vw = self
             .width
-            .or_else(|| constraints.max.width.is_finite().then_some(constraints.max.width))
+            .or_else(|| {
+                constraints
+                    .max
+                    .width
+                    .is_finite()
+                    .then_some(constraints.max.width)
+            })
             .unwrap_or(300.0);
 
         // Lay the child out at the viewport width, unbounded vertically.
@@ -89,7 +95,13 @@ impl Widget for ScrollArea {
 
         let vh = self
             .height
-            .or_else(|| constraints.max.height.is_finite().then_some(constraints.max.height))
+            .or_else(|| {
+                constraints
+                    .max
+                    .height
+                    .is_finite()
+                    .then_some(constraints.max.height)
+            })
             .unwrap_or_else(|| child_size.height.min(400.0));
 
         self.viewport = Size::new(vw, vh);

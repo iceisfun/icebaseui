@@ -160,7 +160,10 @@ impl Rect {
 
     #[inline]
     pub fn max(self) -> Point {
-        Point::new(self.origin.x + self.size.width, self.origin.y + self.size.height)
+        Point::new(
+            self.origin.x + self.size.width,
+            self.origin.y + self.size.height,
+        )
     }
 
     #[inline]

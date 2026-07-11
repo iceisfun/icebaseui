@@ -58,12 +58,19 @@ impl Widget for Viewport {
         let name = self.selected.get();
         let ts = cx.fonts.measure(&name, 30.0, baseui::text::FontId::Ui);
         scene.text(
-            Point::new(frame.center().x - ts.width * 0.5, frame.center().y - ts.height * 0.5 - 12.0),
+            Point::new(
+                frame.center().x - ts.width * 0.5,
+                frame.center().y - ts.height * 0.5 - 12.0,
+            ),
             name,
             30.0,
             p.text,
         );
-        let sub = format!("content viewport — {:.0} × {:.0}", bounds.width(), bounds.height());
+        let sub = format!(
+            "content viewport — {:.0} × {:.0}",
+            bounds.width(),
+            bounds.height()
+        );
         let sw = cx.fonts.measure(&sub, 13.0, baseui::text::FontId::Ui);
         scene.text(
             Point::new(frame.center().x - sw.width * 0.5, frame.center().y + 20.0),
@@ -97,7 +104,10 @@ fn cmd(
     color: Color,
     shortcut: Option<&str>,
 ) {
-    let mut meta = CommandMeta::new(id, title).category(category).icon(icon).color(color);
+    let mut meta = CommandMeta::new(id, title)
+        .category(category)
+        .icon(icon)
+        .color(color);
     if let Some(sc) = shortcut {
         meta = meta.shortcut(sc);
     }
@@ -142,18 +152,114 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Register commands (menus, toolbar, shortcuts, and the palette all
     //     invoke these by id) --------------------------------------------------
-    cmd(last_action, "file.new", "New", "File", gis::MAP, blue, Some("Ctrl+N"));
-    cmd(last_action, "file.open", "Open File…", "File", gis::FOLDER_MAP, blue, Some("Ctrl+O"));
-    cmd(last_action, "file.save", "Save", "File", gis::MAP_SEND, blue, Some("Ctrl+S"));
-    cmd(last_action, "file.quit", "Quit", "File", gis::MAP_RM, blue, None);
-    cmd(last_action, "edit.undo", "Undo", "Edit", gis::COMPASS, purple, Some("Ctrl+Z"));
-    cmd(last_action, "edit.redo", "Redo", "Edit", gis::COMPASS_ALT, purple, Some("Ctrl+Shift+Z"));
-    cmd(last_action, "create.cube", "Create Cube", "Create", gis::POLYGON, orange, None);
-    cmd(last_action, "create.cube.opts", "Cube Options…", "Create", glyphs::GEAR, orange, None);
-    cmd(last_action, "create.sphere", "Create Sphere", "Create", gis::GLOBE, orange, None);
-    cmd(last_action, "create.sphere.opts", "Sphere Options…", "Create", glyphs::GEAR, orange, None);
-    cmd(last_action, "create.plane", "Create Plane", "Create", gis::LAYERS, orange, None);
-    cmd(last_action, "create.plane.opts", "Plane Options…", "Create", glyphs::GEAR, orange, None);
+    cmd(
+        last_action,
+        "file.new",
+        "New",
+        "File",
+        gis::MAP,
+        blue,
+        Some("Ctrl+N"),
+    );
+    cmd(
+        last_action,
+        "file.open",
+        "Open File…",
+        "File",
+        gis::FOLDER_MAP,
+        blue,
+        Some("Ctrl+O"),
+    );
+    cmd(
+        last_action,
+        "file.save",
+        "Save",
+        "File",
+        gis::MAP_SEND,
+        blue,
+        Some("Ctrl+S"),
+    );
+    cmd(
+        last_action,
+        "file.quit",
+        "Quit",
+        "File",
+        gis::MAP_RM,
+        blue,
+        None,
+    );
+    cmd(
+        last_action,
+        "edit.undo",
+        "Undo",
+        "Edit",
+        gis::COMPASS,
+        purple,
+        Some("Ctrl+Z"),
+    );
+    cmd(
+        last_action,
+        "edit.redo",
+        "Redo",
+        "Edit",
+        gis::COMPASS_ALT,
+        purple,
+        Some("Ctrl+Shift+Z"),
+    );
+    cmd(
+        last_action,
+        "create.cube",
+        "Create Cube",
+        "Create",
+        gis::POLYGON,
+        orange,
+        None,
+    );
+    cmd(
+        last_action,
+        "create.cube.opts",
+        "Cube Options…",
+        "Create",
+        glyphs::GEAR,
+        orange,
+        None,
+    );
+    cmd(
+        last_action,
+        "create.sphere",
+        "Create Sphere",
+        "Create",
+        gis::GLOBE,
+        orange,
+        None,
+    );
+    cmd(
+        last_action,
+        "create.sphere.opts",
+        "Sphere Options…",
+        "Create",
+        glyphs::GEAR,
+        orange,
+        None,
+    );
+    cmd(
+        last_action,
+        "create.plane",
+        "Create Plane",
+        "Create",
+        gis::LAYERS,
+        orange,
+        None,
+    );
+    cmd(
+        last_action,
+        "create.plane.opts",
+        "Plane Options…",
+        "Create",
+        glyphs::GEAR,
+        orange,
+        None,
+    );
     // Global text scale — commands, so they work from the menu, a shortcut, and
     // the Command Palette alike.
     command::register(
@@ -181,25 +287,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         || baseui::text::set_scale(1.0),
     );
 
-    cmd(last_action, "view.grid", "Toggle Grid", "View", gis::LAYER, green, Some("G"));
-    cmd(last_action, "view.measure", "Measure Tool", "View", gis::MEASURE, green, Some("M"));
-    cmd(last_action, "view.point", "Point Tool", "View", gis::POINT, green, Some("P"));
+    cmd(
+        last_action,
+        "view.grid",
+        "Toggle Grid",
+        "View",
+        gis::LAYER,
+        green,
+        Some("G"),
+    );
+    cmd(
+        last_action,
+        "view.measure",
+        "Measure Tool",
+        "View",
+        gis::MEASURE,
+        green,
+        Some("M"),
+    );
+    cmd(
+        last_action,
+        "view.point",
+        "Point Tool",
+        "View",
+        gis::POINT,
+        green,
+        Some("P"),
+    );
 
     // --- Menu bar ---------------------------------------------------------
     let menubar = MenuBar::new()
         .menu(
             Menu::new("File")
                 .item_icon(gis::MAP, "New", || command::run("file.new"))
-                .item_icon(gis::FOLDER_MAP, "Open File…", || command::run("file.open"))
+                .item_icon(gis::FOLDER_MAP, "Open File…", || {
+                    command::run("file.open")
+                })
                 .item_icon(gis::MAP_SEND, "Save", || command::run("file.save"))
                 .separator()
                 .item("Quit", || command::run("file.quit")),
         )
         .menu(
             Menu::new("Create")
-                .item_options(gis::POLYGON, "Cube", || command::run("create.cube"), || command::run("create.cube.opts"))
-                .item_options(gis::GLOBE, "Sphere", || command::run("create.sphere"), || command::run("create.sphere.opts"))
-                .item_options(gis::LAYERS, "Plane", || command::run("create.plane"), || command::run("create.plane.opts")),
+                .item_options(
+                    gis::POLYGON,
+                    "Cube",
+                    || command::run("create.cube"),
+                    || command::run("create.cube.opts"),
+                )
+                .item_options(
+                    gis::GLOBE,
+                    "Sphere",
+                    || command::run("create.sphere"),
+                    || command::run("create.sphere.opts"),
+                )
+                .item_options(
+                    gis::LAYERS,
+                    "Plane",
+                    || command::run("create.plane"),
+                    || command::run("create.plane.opts"),
+                ),
         )
         .menu(
             Menu::new("Edit")
@@ -219,10 +366,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
         )
         .menu(
-            Menu::new("Window")
-                .item_icon(glyphs::SQUARE, "Open Tool Window", || {
-                    command::run("window.tool")
-                }),
+            Menu::new("Window").item_icon(glyphs::SQUARE, "Open Tool Window", || {
+                command::run("window.tool")
+            }),
         )
         .menu(Menu::new("Help").item_icon(glyphs::STAR, "Command Palette  (F1)", || {}));
 
@@ -249,25 +395,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .action(glyphs::EYE, eye_on, vis)
             .action(glyphs::DIAMOND, blue, rend)
     };
-    let tree = TreeView::new(vec![TreeNode::branch(
-        "Scene Collection",
-        vec![TreeNode::branch(
-            "Collection",
+    let tree = TreeView::new(vec![
+        TreeNode::branch(
+            "Scene Collection",
             vec![
-                obj("Camera", gis::COMPASS, green, true, true),
-                obj("Cube", gis::POLYGON, orange, true, true),
-                obj("Light", glyphs::STAR, col(0xe6, 0xc2, 0x4e), true, false),
-                obj("Sphere", gis::GLOBE, orange, false, true),
+                TreeNode::branch(
+                    "Collection",
+                    vec![
+                        obj("Camera", gis::COMPASS, green, true, true),
+                        obj("Cube", gis::POLYGON, orange, true, true),
+                        obj("Light", glyphs::STAR, col(0xe6, 0xc2, 0x4e), true, false),
+                        obj("Sphere", gis::GLOBE, orange, false, true),
+                    ],
+                )
+                .icon(gis::LAYERS)
+                .icon_color(green),
             ],
         )
-        .icon(gis::LAYERS)
-        .icon_color(green)],
-    )
-    .icon(gis::GLOBE)
-    .icon_color(blue)])
+        .icon(gis::GLOBE)
+        .icon_color(blue),
+    ])
     .on_select(|label| {
         // Typed event for Rust subscribers...
-        bus::publish(&SelectionChanged { name: label.to_string() });
+        bus::publish(&SelectionChanged {
+            name: label.to_string(),
+        });
         // ...and the named channel, which scripts subscribe to.
         bus::publish_named("selection.changed", serde_json::json!({ "name": label }));
     })
@@ -324,15 +476,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ],
                         ),
                     )
-                    .row("Passcode", TextBox::new(passcode).password().placeholder("••••")),
+                    .row(
+                        "Passcode",
+                        TextBox::new(passcode).password().placeholder("••••"),
+                    ),
             )
             .group(xyz("Location", orange, location, 0.01))
             .group(xyz("Rotation", purple, rotation, 0.5))
             .group(xyz("Scale", green, scale, 0.01))
             .group(
-                PropGroup::new("Camera")
-                    .icon_color(green)
-                    .row("FOV", DragValue::new(fov).range(1.0, 179.0).speed(0.25).decimals(1)),
+                PropGroup::new("Camera").icon_color(green).row(
+                    "FOV",
+                    DragValue::new(fov)
+                        .range(1.0, 179.0)
+                        .speed(0.25)
+                        .decimals(1),
+                ),
             )
             .persist("props.object"),
     );
@@ -361,12 +520,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         )
                         .child(
                             Label::dynamic(move || {
-                                format!(
-                                    "R {:.2}   G {:.2}   B {:.2}",
-                                    mr.get(),
-                                    mg.get(),
-                                    mb.get()
-                                )
+                                format!("R {:.2}   G {:.2}   B {:.2}", mr.get(), mg.get(), mb.get())
                             })
                             .size(16.0)
                             .color(orange),
@@ -397,12 +551,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 PropGroup::new("Subdivision")
                     .icon_color(blue)
                     .row("Levels", Slider::new(subdiv).range(0.0, 6.0).width(180.0))
-                    .row("Render", DragValue::new(subdiv).range(0.0, 6.0).speed(0.05).decimals(0)),
+                    .row(
+                        "Render",
+                        DragValue::new(subdiv)
+                            .range(0.0, 6.0)
+                            .speed(0.05)
+                            .decimals(0),
+                    ),
             )
             .group(
-                PropGroup::new("Bevel")
-                    .icon_color(purple)
-                    .row("Amount", DragValue::new(bevel).range(0.0, 1.0).speed(0.005).decimals(3)),
+                PropGroup::new("Bevel").icon_color(purple).row(
+                    "Amount",
+                    DragValue::new(bevel)
+                        .range(0.0, 1.0)
+                        .speed(0.005)
+                        .decimals(3),
+                ),
             ),
     );
     let (gravity, samples) = (sig(9.81), sig(64.0));
@@ -410,19 +574,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PropertyView::new().group(
             PropGroup::new("World")
                 .icon_color(green)
-                .row("Gravity", DragValue::new(gravity).range(0.0, 30.0).speed(0.05).decimals(2))
-                .row("Strength", Slider::new(sig(1.0)).range(0.0, 4.0).width(180.0)),
+                .row(
+                    "Gravity",
+                    DragValue::new(gravity)
+                        .range(0.0, 30.0)
+                        .speed(0.05)
+                        .decimals(2),
+                )
+                .row(
+                    "Strength",
+                    Slider::new(sig(1.0)).range(0.0, 4.0).width(180.0),
+                ),
         ),
     );
     let render_tab = ScrollArea::new(
         PropertyView::new().group(
             PropGroup::new("Sampling")
                 .icon_color(orange)
-                .row("Samples", DragValue::new(samples).range(1.0, 4096.0).speed(2.0).decimals(0))
-                .row("Denoise", baseui::widget::Checkbox::new(
-                    baseui::core::create_signal(true),
-                    "Enabled",
-                )),
+                .row(
+                    "Samples",
+                    DragValue::new(samples)
+                        .range(1.0, 4096.0)
+                        .speed(2.0)
+                        .decimals(0),
+                )
+                .row(
+                    "Denoise",
+                    baseui::widget::Checkbox::new(baseui::core::create_signal(true), "Enabled"),
+                ),
         ),
     );
 
@@ -459,13 +638,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Status bar -------------------------------------------------------
     let status = StatusBar::new()
-        .item(StatusItem::dynamic(move || last_action.get()).icon(glyphs::CHECK).color(green))
-        .item(StatusItem::dynamic(move || format!("Selection: {}", selected.get())))
+        .item(
+            StatusItem::dynamic(move || last_action.get())
+                .icon(glyphs::CHECK)
+                .color(green),
+        )
+        .item(StatusItem::dynamic(move || {
+            format!("Selection: {}", selected.get())
+        }))
         .item(StatusItem::new("Press F1 for commands").right().color(blue))
-        .item(StatusItem::dynamic(|| {
-            format!("Text {:.0}%", baseui::text::scale() * 100.0)
-        })
-        .right())
+        .item(StatusItem::dynamic(|| format!("Text {:.0}%", baseui::text::scale() * 100.0)).right())
         .item(StatusItem::new("BaseUI M7").right());
 
     // --- Frame ------------------------------------------------------------

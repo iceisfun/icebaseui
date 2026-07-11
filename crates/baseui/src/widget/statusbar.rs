@@ -139,7 +139,10 @@ impl Widget for StatusBar {
     fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene) {
         let p = &cx.theme.palette;
         scene.rect(bounds, p.surface);
-        scene.rect(Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), 1.0), p.border);
+        scene.rect(
+            Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), 1.0),
+            p.border,
+        );
 
         let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
         let ty = bounds.top() + (bounds.height() - line_h) * 0.5;
@@ -158,8 +161,10 @@ impl Widget for StatusBar {
                 let color = item.color.unwrap_or(p.text_muted);
                 let mut w = cx.fonts.measure(&s, self.font_size, FontId::Ui).width;
                 if let Some(icon) = item.icon {
-                    w +=
-                        cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + icon_gap;
+                    w += cx
+                        .fonts
+                        .char_advance(icon.ch(), self.font_size, icon.font_id())
+                        + icon_gap;
                 }
                 out.push((s, item.icon, color, item.side, w));
             };
@@ -196,8 +201,17 @@ impl Widget for StatusBar {
             };
             let mut x = x0;
             if let Some(icon) = icon {
-                scene.text_font(Point::new(x, ty), icon.ch().to_string(), self.font_size, color, icon.font_id());
-                x += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + icon_gap;
+                scene.text_font(
+                    Point::new(x, ty),
+                    icon.ch().to_string(),
+                    self.font_size,
+                    color,
+                    icon.font_id(),
+                );
+                x += cx
+                    .fonts
+                    .char_advance(icon.ch(), self.font_size, icon.font_id())
+                    + icon_gap;
             }
             scene.text(Point::new(x, ty), s, self.font_size, color);
         }

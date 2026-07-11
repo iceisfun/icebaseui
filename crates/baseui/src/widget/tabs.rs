@@ -145,9 +145,14 @@ impl Widget for TabView {
                 let pad = cx.theme.spacing.md;
                 let mut x = 0.0;
                 for tab in &mut self.tabs {
-                    let mut tw = cx.fonts.measure(&tab.title, self.font_size, FontId::Ui).width;
+                    let mut tw = cx
+                        .fonts
+                        .measure(&tab.title, self.font_size, FontId::Ui)
+                        .width;
                     if let Some(icon) = tab.icon {
-                        tw += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                        tw += cx
+                            .fonts
+                            .char_advance(icon.ch(), self.font_size, icon.font_id())
                             + pad * 0.5;
                     }
                     tw += pad * 2.0;
@@ -185,9 +190,12 @@ impl Widget for TabView {
             TabStrip::Top => {
                 Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), self.strip_size)
             }
-            TabStrip::Left => {
-                Rect::from_xywh(bounds.left(), bounds.top(), self.strip_size, bounds.height())
-            }
+            TabStrip::Left => Rect::from_xywh(
+                bounds.left(),
+                bounds.top(),
+                self.strip_size,
+                bounds.height(),
+            ),
         };
         scene.rect(strip_rect, p.surface_variant);
 
@@ -219,7 +227,9 @@ impl Widget for TabView {
                             color,
                             icon.font_id(),
                         );
-                        tx += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                        tx += cx
+                            .fonts
+                            .char_advance(icon.ch(), self.font_size, icon.font_id())
                             + cx.theme.spacing.sm;
                     }
                     scene.text(Point::new(tx, ty), tab.title.clone(), self.font_size, color);
@@ -240,19 +250,13 @@ impl Widget for TabView {
                     // Icon-only (fall back to the title's first letter).
                     let (ch, font) = match tab.icon {
                         Some(icon) => (icon.ch(), icon.font_id()),
-                        None => (
-                            tab.title.chars().next().unwrap_or('?'),
-                            FontId::Ui,
-                        ),
+                        None => (tab.title.chars().next().unwrap_or('?'), FontId::Ui),
                     };
                     let color = if selected { p.text } else { p.text_muted };
                     let adv = cx.fonts.char_advance(ch, self.icon_size, font);
                     let line_h = cx.fonts.line_height(self.icon_size, font);
                     scene.text_font(
-                        Point::new(
-                            hr.center().x - adv * 0.5,
-                            hr.center().y - line_h * 0.5,
-                        ),
+                        Point::new(hr.center().x - adv * 0.5, hr.center().y - line_h * 0.5),
                         ch.to_string(),
                         self.icon_size,
                         color,

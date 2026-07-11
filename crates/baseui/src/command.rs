@@ -422,14 +422,7 @@ impl CommandPalette {
         self.panel = Rect::from_xywh(x, y, width, panel_h);
         self.box_rect = Rect::from_xywh(x + 8.0, y + 8.0, width - 16.0, box_h - 8.0);
         self.row_rects = (0..visible)
-            .map(|i| {
-                Rect::from_xywh(
-                    x + 6.0,
-                    y + box_h + i as f32 * row_h,
-                    width - 12.0,
-                    row_h,
-                )
-            })
+            .map(|i| Rect::from_xywh(x + 6.0, y + box_h + i as f32 * row_h, width - 12.0, row_h))
             .collect();
     }
 
@@ -511,7 +504,8 @@ impl CommandPalette {
                 .with_corner_radius(theme.radius.md)
                 .with_border(1.0, p.accent),
         );
-        let text_y = box_rect.top() + (box_rect.height() - fonts.line_height(self.font_size, FontId::Ui)) * 0.5;
+        let text_y = box_rect.top()
+            + (box_rect.height() - fonts.line_height(self.font_size, FontId::Ui)) * 0.5;
         if self.query.is_empty() {
             scene.text(
                 Point::new(box_rect.left() + 10.0, text_y),
@@ -529,7 +523,12 @@ impl CommandPalette {
             );
             // Caret.
             scene.rect(
-                Rect::from_xywh(box_rect.left() + 10.0 + qw + 1.0, text_y, 1.5, fonts.line_height(self.font_size, FontId::Ui)),
+                Rect::from_xywh(
+                    box_rect.left() + 10.0 + qw + 1.0,
+                    text_y,
+                    1.5,
+                    fonts.line_height(self.font_size, FontId::Ui),
+                ),
                 p.accent,
             );
         }
@@ -546,22 +545,45 @@ impl CommandPalette {
             let mut tx = row.left() + 10.0;
             if let Some(icon) = cmd.icon {
                 let color = cmd.color.unwrap_or(p.text);
-                scene.text_font(Point::new(tx, ty), icon.ch().to_string(), self.font_size, color, icon.font_id());
+                scene.text_font(
+                    Point::new(tx, ty),
+                    icon.ch().to_string(),
+                    self.font_size,
+                    color,
+                    icon.font_id(),
+                );
                 tx += fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + 8.0;
             }
-            scene.text(Point::new(tx, ty), cmd.title.clone(), self.font_size, p.text);
+            scene.text(
+                Point::new(tx, ty),
+                cmd.title.clone(),
+                self.font_size,
+                p.text,
+            );
 
             // Right-aligned: shortcut, then category.
             let mut rx = row.right() - 12.0;
             if let Some(sc) = &cmd.shortcut {
                 let w = fonts.measure(sc, self.font_size - 1.0, FontId::Ui).width;
                 rx -= w;
-                scene.text(Point::new(rx, ty), sc.clone(), self.font_size - 1.0, p.text_muted);
+                scene.text(
+                    Point::new(rx, ty),
+                    sc.clone(),
+                    self.font_size - 1.0,
+                    p.text_muted,
+                );
                 rx -= 14.0;
             }
-            let cw = fonts.measure(&cmd.category, self.font_size - 1.0, FontId::Ui).width;
+            let cw = fonts
+                .measure(&cmd.category, self.font_size - 1.0, FontId::Ui)
+                .width;
             rx -= cw;
-            scene.text(Point::new(rx, ty), cmd.category.clone(), self.font_size - 1.0, p.accent);
+            scene.text(
+                Point::new(rx, ty),
+                cmd.category.clone(),
+                self.font_size - 1.0,
+                p.accent,
+            );
         }
 
         if self.results.is_empty() {
@@ -613,7 +635,10 @@ mod tests {
     /// A detached panel window shows its own commands; the main window does not.
     #[test]
     fn context_scopes_palette_visibility_and_shortcuts() {
-        register(CommandMeta::new("ctx.global", "Global Thing").shortcut("Ctrl+F9"), || {});
+        register(
+            CommandMeta::new("ctx.global", "Global Thing").shortcut("Ctrl+F9"),
+            || {},
+        );
         register(
             CommandMeta::new("ctx.panel", "Panel Thing")
                 .context("panel")
@@ -629,7 +654,11 @@ mod tests {
             !hits.iter().any(|m| m.id == "ctx.panel"),
             "panel-scoped command must not leak into the global palette"
         );
-        assert_eq!(command_for_chord("ctrl+f10"), None, "its shortcut must not fire either");
+        assert_eq!(
+            command_for_chord("ctrl+f10"),
+            None,
+            "its shortcut must not fire either"
+        );
 
         // Inside a panel window: global commands PLUS the panel-scoped ones.
         set_active_context(Some("panel".into()));
@@ -670,11 +699,20 @@ mod tests {
 
     #[test]
     fn shortcut_normalization_and_lookup() {
-        register(CommandMeta::new("test.save", "Save").shortcut("Ctrl+S"), || {});
+        register(
+            CommandMeta::new("test.save", "Save").shortcut("Ctrl+S"),
+            || {},
+        );
         assert_eq!(command_for_chord("ctrl+s").as_deref(), Some("test.save"));
         // Modifier order / case doesn't matter.
         assert_eq!(
-            chord_of(&Key::Character('S'), Modifiers { ctrl: true, ..Default::default() }),
+            chord_of(
+                &Key::Character('S'),
+                Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                }
+            ),
             "ctrl+s"
         );
     }

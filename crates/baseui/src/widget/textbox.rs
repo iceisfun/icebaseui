@@ -428,7 +428,13 @@ mod tests {
 
         let mut cx = ecx(&fonts, &theme);
         let b = Rect::from_xywh(0.0, 0.0, 200.0, 28.0);
-        tb.event(&mut cx, b, &InputEvent::Text { text: "Hello".into() });
+        tb.event(
+            &mut cx,
+            b,
+            &InputEvent::Text {
+                text: "Hello".into(),
+            },
+        );
         assert_eq!(value.get(), "Hello");
         assert_eq!(tb.caret, 5);
 

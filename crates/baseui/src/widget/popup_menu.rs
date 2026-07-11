@@ -164,7 +164,10 @@ impl PopupMenu {
                 w += fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + 8.0 * s;
             }
             if let Some(shortcut) = &item.shortcut {
-                w += 20.0 * s + fonts.measure(shortcut, self.font_size - 1.0, FontId::Ui).width;
+                w += 20.0 * s
+                    + fonts
+                        .measure(shortcut, self.font_size - 1.0, FontId::Ui)
+                        .width;
             }
             if item.has_options {
                 w += OPTIONS_W * s;
@@ -196,10 +199,13 @@ impl PopupMenu {
 
     /// Item index under `pos`, if it is a selectable (enabled, non-separator) row.
     fn item_at(&self, pos: Point) -> Option<usize> {
-        self.item_rects.iter().position(|r| r.contains(pos)).filter(|&i| {
-            let item = &self.items[i];
-            !item.separator && item.enabled
-        })
+        self.item_rects
+            .iter()
+            .position(|r| r.contains(pos))
+            .filter(|&i| {
+                let item = &self.items[i];
+                !item.separator && item.enabled
+            })
     }
 
     /// Draw into the scene's overlay layer.
@@ -263,7 +269,12 @@ impl PopupMenu {
                     .char_advance(icon.ch(), self.font_size, icon.font_id())
                     + 8.0 * s;
             }
-            scene.text(Point::new(tx, ty), item.label.clone(), self.font_size, color);
+            scene.text(
+                Point::new(tx, ty),
+                item.label.clone(),
+                self.font_size,
+                color,
+            );
 
             let mut right = r.right() - 10.0 * s;
             if item.has_options {
@@ -389,7 +400,13 @@ mod tests {
                 button: PointerButton::Primary,
             },
         );
-        assert_eq!(got, Some(Activation { index: 2, options: false }));
+        assert_eq!(
+            got,
+            Some(Activation {
+                index: 2,
+                options: false
+            })
+        );
         assert!(!menu.is_open(), "activating closes the popup");
         assert!(cx.is_consumed());
     }
@@ -402,11 +419,14 @@ mod tests {
         let screen = Size::new(800.0, 600.0);
         let mut menu = PopupMenu::new();
         // Anchor right at the bottom edge: the panel cannot fit below.
-        menu.open_at(Point::new(50.0, 590.0), vec![
-            MenuItemSpec::new("One"),
-            MenuItemSpec::new("Two"),
-            MenuItemSpec::new("Three"),
-        ]);
+        menu.open_at(
+            Point::new(50.0, 590.0),
+            vec![
+                MenuItemSpec::new("One"),
+                MenuItemSpec::new("Two"),
+                MenuItemSpec::new("Three"),
+            ],
+        );
         menu.compute(&fonts, screen);
 
         assert!(

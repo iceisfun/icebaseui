@@ -204,7 +204,9 @@ impl Widget for Toolbar {
 
         for (i, item) in self.items.iter().enumerate() {
             match item {
-                Item::Button { icon, label, rect, .. } => {
+                Item::Button {
+                    icon, label, rect, ..
+                } => {
                     let abs = super::absolute(bounds, *rect);
                     let bg = if self.pressed == Some(i) {
                         Some(p.active)
@@ -216,9 +218,24 @@ impl Widget for Toolbar {
                     if let Some(bg) = bg {
                         scene.rounded_rect(abs, bg, cx.theme.radius.sm);
                     }
-                    draw_content(scene, cx, abs, icon, label, p.text, self.font_size, line_h, pad);
+                    draw_content(
+                        scene,
+                        cx,
+                        abs,
+                        icon,
+                        label,
+                        p.text,
+                        self.font_size,
+                        line_h,
+                        pad,
+                    );
                 }
-                Item::Toggle { icon, label, value, rect } => {
+                Item::Toggle {
+                    icon,
+                    label,
+                    value,
+                    rect,
+                } => {
                     let abs = super::absolute(bounds, *rect);
                     let on = value.get();
                     if on {
@@ -227,7 +244,17 @@ impl Widget for Toolbar {
                         scene.rounded_rect(abs, p.hover, cx.theme.radius.sm);
                     }
                     let color = if on { p.accent } else { p.text };
-                    draw_content(scene, cx, abs, icon, label, color, self.font_size, line_h, pad);
+                    draw_content(
+                        scene,
+                        cx,
+                        abs,
+                        icon,
+                        label,
+                        color,
+                        self.font_size,
+                        line_h,
+                        pad,
+                    );
                 }
                 Item::Separator { rect } => {
                     let abs = super::absolute(bounds, *rect);
@@ -295,7 +322,13 @@ fn draw_content(
     let ty = abs.top() + (abs.height() - line_h) * 0.5;
     let mut x = abs.left() + pad;
     if let Some(icon) = icon {
-        scene.text_font(Point::new(x, ty), icon.ch().to_string(), font_size, color, icon.font_id());
+        scene.text_font(
+            Point::new(x, ty),
+            icon.ch().to_string(),
+            font_size,
+            color,
+            icon.font_id(),
+        );
         x += cx.fonts.char_advance(icon.ch(), font_size, icon.font_id());
         if label.is_some() {
             x += pad * 0.5;

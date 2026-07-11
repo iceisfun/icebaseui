@@ -35,6 +35,7 @@ mod split;
 mod stack;
 pub mod statusbar;
 mod tabs;
+mod textarea;
 mod textbox;
 mod toolbar;
 mod tree;
@@ -55,6 +56,7 @@ pub use split::Split;
 pub use stack::{Column, Row};
 pub use statusbar::{StatusBar, StatusItem};
 pub use tabs::{TabStrip, TabView};
+pub use textarea::{Diagnostic, Highlighter, Span, TextArea};
 pub use textbox::TextBox;
 pub use toolbar::Toolbar;
 pub use tree::{TreeNode, TreeView};
@@ -286,18 +288,54 @@ mod tests {
         };
 
         // Press + release inside => one click.
-        send(&mut button, InputEvent::PointerPressed { pos: inside, button: PointerButton::Primary });
-        send(&mut button, InputEvent::PointerReleased { pos: inside, button: PointerButton::Primary });
+        send(
+            &mut button,
+            InputEvent::PointerPressed {
+                pos: inside,
+                button: PointerButton::Primary,
+            },
+        );
+        send(
+            &mut button,
+            InputEvent::PointerReleased {
+                pos: inside,
+                button: PointerButton::Primary,
+            },
+        );
         assert_eq!(clicks.get(), 1);
 
         // Press inside, release outside => no additional click.
-        send(&mut button, InputEvent::PointerPressed { pos: inside, button: PointerButton::Primary });
-        send(&mut button, InputEvent::PointerReleased { pos: outside, button: PointerButton::Primary });
+        send(
+            &mut button,
+            InputEvent::PointerPressed {
+                pos: inside,
+                button: PointerButton::Primary,
+            },
+        );
+        send(
+            &mut button,
+            InputEvent::PointerReleased {
+                pos: outside,
+                button: PointerButton::Primary,
+            },
+        );
         assert_eq!(clicks.get(), 1);
 
         // A press entirely outside never arms the button.
-        send(&mut button, InputEvent::PointerPressed { pos: outside, button: PointerButton::Primary });
-        send(&mut button, InputEvent::PointerReleased { pos: inside, button: PointerButton::Primary });
+        send(
+            &mut button,
+            InputEvent::PointerPressed {
+                pos: outside,
+                button: PointerButton::Primary,
+            },
+        );
+        send(
+            &mut button,
+            InputEvent::PointerReleased {
+                pos: inside,
+                button: PointerButton::Primary,
+            },
+        );
         assert_eq!(clicks.get(), 1);
     }
 }

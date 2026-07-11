@@ -6,9 +6,10 @@ apps. Written in Rust.
 
 > Status: **M1–M7 complete.** Rendering (wgpu SDF painter + glyph/icon atlas),
 > the retained + reactive widget tree, layout, pointer & keyboard input, the full
-> widget set (TreeView, PropertyView, HexView, TextBox, ComboBox, tabs, resizable
-> splits), the app frame (menu/toolbar/status), and the systems layer (commands +
-> Command Palette, shortcuts, event bus, persistence). Next: M8 extensibility.
+> widget set (TreeView, PropertyView, HexView, TextBox, **TextArea**, ComboBox,
+> tabs, resizable splits), the app frame (menu/toolbar/status), the systems layer
+> (commands + Command Palette, shortcuts, event bus, persistence), Lua scripting,
+> and **docking** (drag/split/detach to floating windows). Next: M8 extensibility.
 
 ## Architecture decisions
 
@@ -45,12 +46,12 @@ baseui/
 │       ├── window       # multi-window: open/close request queue
 │       ├── popup        # popup modality (keyboard capture)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
-│       │                #   Slider, DragValue, TextBox, ComboBox, HexView,
-│       │                #   ScrollArea, TreeView, PropertyView, TabView, Split,
-│       │                #   MenuBar, Toolbar, StatusBar
+│       │                #   Slider, DragValue, TextBox, TextArea, ComboBox,
+│       │                #   HexView, ScrollArea, TreeView, PropertyView, TabView,
+│       │                #   Split, DockArea, MenuBar, Toolbar, StatusBar
 │       └── app          # App shell + winit loop + pointer/keyboard routing
 ├── docs/
-│   ├── rich-text.md     # styled runs, hex editor, squiggle underlines
+│   ├── rich-text.md     # styled runs, squiggles (built); wrapping galley (planned)
 │   ├── document-tabs.md # planned VS Code-style tabs for the content area
 │   ├── docking.md       # dock plan: id-tree design + phases (Phase 0 done)
 │   └── scripting.md     # Lua scope: composition/glue, NOT widget authoring
@@ -58,7 +59,9 @@ baseui/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)
     ├── counter/         # widget + reactive-signal demo
     ├── widgets/         # control gallery starring HexView (colored bytes)
-    └── inspector/       # TreeView + PropertyView (Blender-style)
+    ├── inspector/       # TreeView + PropertyView (Blender-style)
+    ├── dock/            # dockable panels: drag, split, detach, redock
+    └── editor/          # TextArea as a code area: syntax colors + squiggles
 ```
 
 Large optional systems will live in their own crates: `baseui-dock`,
@@ -98,6 +101,8 @@ cargo clippy --workspace
       reactive ASCII toggle), and — once keyboard/focus landed in M7 — an
       editable **TextBox** (caret, selection, clipboard, password) and
       **ComboBox**. `ScrollArea` landed in M5; a `Grid` container is still open.
+      **`TextArea`** followed: multi-line editing with a pluggable syntax
+      highlighter and squiggle-underlined diagnostics (see the `editor` example).
 - [x] **M5 — Flagship widgets:** `ScrollArea`, `TreeView` (expand/collapse,
       colored type icons, selection, hover), and `PropertyView` (collapsible
       groups with colored section icons; rows embed real editor widgets). See

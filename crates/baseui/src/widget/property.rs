@@ -133,9 +133,10 @@ impl Widget for PropertyView {
 
             if !group.collapsed {
                 for row in &mut group.rows {
-                    let es = row
-                        .editor
-                        .layout(cx, Constraints::loose(Size::new(editor_avail, f32::INFINITY)));
+                    let es = row.editor.layout(
+                        cx,
+                        Constraints::loose(Size::new(editor_avail, f32::INFINITY)),
+                    );
                     let row_h = min_row_h.max(es.height + cx.theme.spacing.xs * 2.0);
                     row.label_pos = Point::new(pad, y + (row_h - line_h) * 0.5);
                     row.editor_rect = Rect::from_xywh(
@@ -168,7 +169,11 @@ impl Widget for PropertyView {
             scene.push_rect(RectShape::fill(hr, bg).with_corner_radius(cx.theme.radius.sm));
 
             let cy = hr.top() + (hr.height() - line_h) * 0.5;
-            let arrow = if group.collapsed { "\u{25B8}" } else { "\u{25BE}" };
+            let arrow = if group.collapsed {
+                "\u{25B8}"
+            } else {
+                "\u{25BE}"
+            };
             scene.text(
                 Point::new(hr.left() + cx.theme.spacing.md, cy),
                 arrow,
@@ -200,7 +205,8 @@ impl Widget for PropertyView {
                         self.font_size,
                         p.text_muted,
                     );
-                    row.editor.paint(cx, absolute(bounds, row.editor_rect), scene);
+                    row.editor
+                        .paint(cx, absolute(bounds, row.editor_rect), scene);
                 }
             }
         }
@@ -301,7 +307,10 @@ mod tests {
             theme: &theme,
             window: None,
         };
-        let size = pv.layout(&mut lcx, Constraints::loose(Size::new(320.0, f32::INFINITY)));
+        let size = pv.layout(
+            &mut lcx,
+            Constraints::loose(Size::new(320.0, f32::INFINITY)),
+        );
         let bounds = Rect::new(Point::ZERO, size);
 
         let combo = absolute(bounds, pv.groups[0].rows[0].editor_rect);
@@ -323,7 +332,10 @@ mod tests {
         // beneath it — i.e. exactly the click that used to fall through.
         let pos = Point::new(combo.center().x, header.center().y);
         assert!(header.contains(pos), "test point must be over the header");
-        assert!(pos.y > combo.bottom(), "test point must be inside the popup");
+        assert!(
+            pos.y > combo.bottom(),
+            "test point must be inside the popup"
+        );
 
         let mut cx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         pv.event(

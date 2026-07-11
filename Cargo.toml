@@ -9,6 +9,7 @@ members = [
     "examples/widgets",
     "examples/inspector",
     "examples/dock",
+    "examples/editor",
 ]
 
 [workspace.package]

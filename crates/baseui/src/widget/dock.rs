@@ -253,7 +253,11 @@ pub struct Panel {
 }
 
 impl Panel {
-    pub fn new(id: impl Into<String>, title: impl Into<String>, widget: impl Widget + 'static) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        widget: impl Widget + 'static,
+    ) -> Self {
         Panel {
             id: id.into(),
             title: title.into(),
@@ -420,7 +424,10 @@ impl DockArea {
         let Some(panel) = self.panels.get(id) else {
             return 60.0 * s;
         };
-        let mut w = fonts.measure(&panel.title, self.font_size, FontId::Ui).width + 20.0 * s;
+        let mut w = fonts
+            .measure(&panel.title, self.font_size, FontId::Ui)
+            .width
+            + 20.0 * s;
         if let Some(icon) = panel.icon {
             w += fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + 6.0 * s;
         }
@@ -490,7 +497,11 @@ impl DockArea {
                     DockAxis::Vertical => rect.top(),
                 };
                 for (i, child) in children.iter().enumerate() {
-                    let frac = if sum > 0.0 { sizes[i] / sum } else { 1.0 / n as f32 };
+                    let frac = if sum > 0.0 {
+                        sizes[i] / sum
+                    } else {
+                        1.0 / n as f32
+                    };
                     let len = total * frac;
                     let child_rect = match axis {
                         DockAxis::Horizontal => {
@@ -558,8 +569,11 @@ impl DockArea {
     fn drop_unknown(&mut self) {
         let known: Vec<String> = self.panels.keys().cloned().collect();
         retain_panels(&mut self.root, &known);
-        self.root = prune(std::mem::replace(&mut self.root, DockNode::tabs(Vec::<String>::new())))
-            .unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
+        self.root = prune(std::mem::replace(
+            &mut self.root,
+            DockNode::tabs(Vec::<String>::new()),
+        ))
+        .unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
     }
 }
 
@@ -571,7 +585,11 @@ impl DockArea {
 fn find_home(node: &DockNode, id: &str) -> Option<Home> {
     match node {
         DockNode::Tabs { panels, .. } => panels.iter().position(|p| p == id).map(|index| Home {
-            neighbors: panels.iter().filter(|p| p.as_str() != id).cloned().collect(),
+            neighbors: panels
+                .iter()
+                .filter(|p| p.as_str() != id)
+                .cloned()
+                .collect(),
             index,
         }),
         DockNode::Split { children, .. } => children.iter().find_map(|c| find_home(c, id)),
@@ -579,7 +597,11 @@ fn find_home(node: &DockNode, id: &str) -> Option<Home> {
 }
 
 /// Path of the first tab group containing any of `wanted`.
-fn find_group_with_any(node: &DockNode, wanted: &[String], path: &mut Vec<usize>) -> Option<Vec<usize>> {
+fn find_group_with_any(
+    node: &DockNode,
+    wanted: &[String],
+    path: &mut Vec<usize>,
+) -> Option<Vec<usize>> {
     match node {
         DockNode::Tabs { panels, .. } => panels
             .iter()
@@ -901,7 +923,9 @@ impl Widget for DockArea {
                         scene.rounded_rect(close, p.active, cx.theme.radius.sm);
                     }
                     let x = glyphs::CROSS;
-                    let cw = cx.fonts.char_advance(x.ch(), self.font_size - 1.0, x.font_id());
+                    let cw = cx
+                        .fonts
+                        .char_advance(x.ch(), self.font_size - 1.0, x.font_id());
                     scene.text_font(
                         Point::new(
                             close.center().x - cw * 0.5,
@@ -1159,7 +1183,8 @@ impl Widget for DockArea {
 
                     // Activate, and arm a possible drag.
                     let path = group.path.clone();
-                    if let Some(DockNode::Tabs { active, .. }) = node_at_mut(&mut self.root, &path) {
+                    if let Some(DockNode::Tabs { active, .. }) = node_at_mut(&mut self.root, &path)
+                    {
                         *active = ti;
                     }
                     self.drag = Some(TabDrag {
@@ -1267,18 +1292,24 @@ fn indicator_rect(
             let half_w = group_rect.width() * 0.5;
             let half_h = group_rect.height() * 0.5;
             match side {
-                Side::Left => {
-                    Rect::from_xywh(group_rect.left(), group_rect.top(), half_w, group_rect.height())
-                }
+                Side::Left => Rect::from_xywh(
+                    group_rect.left(),
+                    group_rect.top(),
+                    half_w,
+                    group_rect.height(),
+                ),
                 Side::Right => Rect::from_xywh(
                     group_rect.left() + half_w,
                     group_rect.top(),
                     half_w,
                     group_rect.height(),
                 ),
-                Side::Top => {
-                    Rect::from_xywh(group_rect.left(), group_rect.top(), group_rect.width(), half_h)
-                }
+                Side::Top => Rect::from_xywh(
+                    group_rect.left(),
+                    group_rect.top(),
+                    group_rect.width(),
+                    half_h,
+                ),
                 Side::Bottom => Rect::from_xywh(
                     group_rect.left(),
                     group_rect.top() + half_h,
@@ -1391,7 +1422,8 @@ impl DockArea {
         if torn_off {
             // We are the driver: keep the session's global cursor up to date and
             // move the carrier window with it.
-            if let (Some(win), Some(global)) = (cx.window, cx.window.and_then(|w| window::to_screen(w, pos)))
+            if let (Some(win), Some(global)) =
+                (cx.window, cx.window.and_then(|w| window::to_screen(w, pos)))
             {
                 let _ = win;
                 let carrier = with_session(|s| {
@@ -1631,7 +1663,11 @@ impl DockArea {
                 }
             }
             5 | 6 => {
-                let side = if index == 5 { Side::Right } else { Side::Bottom };
+                let side = if index == 5 {
+                    Side::Right
+                } else {
+                    Side::Bottom
+                };
                 let Some(group) = self
                     .groups
                     .iter()
@@ -1646,8 +1682,7 @@ impl DockArea {
                 }
                 remove_tab(&mut self.root, &path, tab);
                 split_with(&mut self.root, &path, side, id.to_string());
-                let root =
-                    std::mem::replace(&mut self.root, DockNode::tabs(Vec::<String>::new()));
+                let root = std::mem::replace(&mut self.root, DockNode::tabs(Vec::<String>::new()));
                 self.root = prune(root).unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
             }
             _ => {}
@@ -1804,9 +1839,16 @@ impl Widget for FloatingPanel {
         // "Dock" button — the redock affordance.
         let btn = super::absolute(bounds, self.dock_rect);
         scene.push_rect(
-            RectShape::fill(btn, if self.hovered_dock { p.accent } else { p.surface })
-                .with_corner_radius(cx.theme.radius.sm)
-                .with_border(1.0, p.border),
+            RectShape::fill(
+                btn,
+                if self.hovered_dock {
+                    p.accent
+                } else {
+                    p.surface
+                },
+            )
+            .with_corner_radius(cx.theme.radius.sm)
+            .with_border(1.0, p.border),
         );
         let lw = cx.fonts.measure("Dock", self.font_size, FontId::Ui).width;
         scene.text(
@@ -1816,7 +1858,11 @@ impl Widget for FloatingPanel {
             ),
             "Dock",
             self.font_size,
-            if self.hovered_dock { p.on_accent } else { p.text },
+            if self.hovered_dock {
+                p.on_accent
+            } else {
+                p.text
+            },
         );
 
         let content = self.content_rect(bounds);
@@ -1990,10 +2036,7 @@ mod tests {
     fn home_survives_the_tree_being_reshaped() {
         let mut dock = DockArea::new(DockNode::split(
             DockAxis::Horizontal,
-            vec![
-                DockNode::tabs(["a"]),
-                DockNode::tabs(["b", "c"]),
-            ],
+            vec![DockNode::tabs(["a"]), DockNode::tabs(["b", "c"])],
         ))
         .panel(Panel::new("a", "A", Null))
         .panel(Panel::new("b", "B", Null))
@@ -2007,7 +2050,10 @@ mod tests {
         assert!(matches!(dock.root, DockNode::Tabs { .. }));
 
         dock.panels.insert("c".into(), c);
-        assert!(dock.restore_home("c", &home), "sibling anchor still resolves");
+        assert!(
+            dock.restore_home("c", &home),
+            "sibling anchor still resolves"
+        );
         assert_eq!(ids(&dock.root), vec!["b", "c"]);
     }
 

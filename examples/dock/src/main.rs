@@ -52,7 +52,9 @@ impl Widget for Viewport {
         let frame = bounds.shrink(baseui::Insets::all(10.0));
         scene.stroke_rect(frame, self.tint, 1.0, cx.theme.radius.md);
 
-        let ts = cx.fonts.measure(&self.label, 24.0, baseui::text::FontId::Ui);
+        let ts = cx
+            .fonts
+            .measure(&self.label, 24.0, baseui::text::FontId::Ui);
         scene.text(
             Point::new(
                 frame.center().x - ts.width * 0.5,
@@ -90,16 +92,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let purple = col(0xc7, 0x6c, 0xd6);
 
     // --- Panel content: ordinary widgets ----------------------------------
-    let outliner = ScrollArea::new(TreeView::new(vec![TreeNode::branch(
-        "Scene Collection",
-        vec![
-            TreeNode::leaf("Camera").icon(gis::COMPASS).icon_color(green),
-            TreeNode::leaf("Cube").icon(gis::POLYGON).icon_color(orange),
-            TreeNode::leaf("Light").icon(glyphs::STAR).icon_color(col(0xe6, 0xc2, 0x4e)),
-        ],
-    )
-    .icon(gis::GLOBE)
-    .icon_color(blue)]));
+    let outliner = ScrollArea::new(TreeView::new(vec![
+        TreeNode::branch(
+            "Scene Collection",
+            vec![
+                TreeNode::leaf("Camera")
+                    .icon(gis::COMPASS)
+                    .icon_color(green),
+                TreeNode::leaf("Cube").icon(gis::POLYGON).icon_color(orange),
+                TreeNode::leaf("Light")
+                    .icon(glyphs::STAR)
+                    .icon_color(col(0xe6, 0xc2, 0x4e)),
+            ],
+        )
+        .icon(gis::GLOBE)
+        .icon_color(blue),
+    ]));
 
     let (px, py, pz) = (sig(0.0), sig(0.0), sig(0.0));
     let rough = sig(0.4);
@@ -153,8 +161,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .panel(Panel::new("outliner", "Outliner", outliner).icon(gis::LAYERS))
         .panel(Panel::new("properties", "Properties", properties).icon(glyphs::GEAR))
         .panel(
-            Panel::new("hex", "Hex", HexView::new(sample_bytes()).rows(20).font_size(12.0))
-                .icon(gis::POINT),
+            Panel::new(
+                "hex",
+                "Hex",
+                HexView::new(sample_bytes()).rows(20).font_size(12.0),
+            )
+            .icon(gis::POINT),
         )
         .panel(
             Panel::new(
@@ -214,7 +226,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .menu(Menu::new("Help").item("Drag a tab to reorder / split", || {}));
 
     let status = StatusBar::new()
-        .item(StatusItem::new("Drag tabs · right-click for menu · drag gutters").icon(glyphs::CHECK).color(green))
+        .item(
+            StatusItem::new("Drag tabs · right-click for menu · drag gutters")
+                .icon(glyphs::CHECK)
+                .color(green),
+        )
         .item(StatusItem::new("Layout persists").right().color(blue));
 
     let root = Split::vertical()

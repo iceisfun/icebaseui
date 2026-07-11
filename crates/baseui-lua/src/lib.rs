@@ -211,15 +211,13 @@ fn install(lua: &Lua) -> mlua::Result<()> {
             let lua = lua.clone();
             let event = name.clone();
             // Subscriptions live for the process (plugins are loaded once).
-            bus::on_named(&name, move |payload| {
-                match lua.to_value(payload) {
-                    Ok(value) => {
-                        if let Err(e) = handler.call::<()>(value) {
-                            log::error!("lua: handler for {event} failed: {e}");
-                        }
+            bus::on_named(&name, move |payload| match lua.to_value(payload) {
+                Ok(value) => {
+                    if let Err(e) = handler.call::<()>(value) {
+                        log::error!("lua: handler for {event} failed: {e}");
                     }
-                    Err(e) => log::error!("lua: bad payload for {event}: {e}"),
                 }
+                Err(e) => log::error!("lua: bad payload for {event}: {e}"),
             })
             .leak();
             Ok(())
@@ -343,7 +341,10 @@ mod tests {
         // It is now a first-class command: searchable, and runnable from Rust.
         let hits = command::search("Lua Test");
         assert!(hits.iter().any(|m| m.id == "test.lua.cmd"));
-        assert!(hits.iter().any(|m| m.category == "Test" && m.icon.is_some()));
+        assert!(
+            hits.iter()
+                .any(|m| m.category == "Test" && m.icon.is_some())
+        );
 
         command::run("test.lua.cmd");
         let ran: i64 = engine.lua().globals().get("ran").unwrap();
@@ -375,7 +376,10 @@ mod tests {
             *g2.borrow_mut() = p["msg"].as_str().unwrap_or_default().to_string();
         });
         engine
-            .eval("test", r#"baseui.bus.emit("test.from_lua", { msg = "hi" })"#)
+            .eval(
+                "test",
+                r#"baseui.bus.emit("test.from_lua", { msg = "hi" })"#,
+            )
             .unwrap();
         assert_eq!(got.borrow().as_str(), "hi");
     }

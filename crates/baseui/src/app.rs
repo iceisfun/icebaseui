@@ -229,10 +229,8 @@ impl App {
             }
         }
 
-        if let (Some(root), Some(fonts)) = (
-            self.windows[index].root.as_mut(),
-            self.fonts.as_ref(),
-        ) {
+        if let (Some(root), Some(fonts)) = (self.windows[index].root.as_mut(), self.fonts.as_ref())
+        {
             let mut cx = EventCx::new(fonts, &self.theme, logical).with_window(window_id);
             root.event(&mut cx, bounds, &event);
         }
@@ -357,8 +355,8 @@ impl App {
         }
 
         // The command palette floats above the *focused* window.
-        let is_active = self.active == Some(state.window.id())
-            || (self.active.is_none() && state.is_main);
+        let is_active =
+            self.active == Some(state.window.id()) || (self.active.is_none() && state.is_main);
         if is_active {
             self.palette
                 .paint(fonts, &self.theme, logical, &mut state.scene);
@@ -618,9 +616,7 @@ impl ApplicationHandler for App {
                 self.windows[index].window.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.windows[index]
-                    .renderer
-                    .set_scale_factor(scale_factor);
+                self.windows[index].renderer.set_scale_factor(scale_factor);
                 self.windows[index].window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {

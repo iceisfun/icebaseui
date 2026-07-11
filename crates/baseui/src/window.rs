@@ -27,8 +27,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub use winit::window::WindowId;
 use winit::window::Window;
+pub use winit::window::WindowId;
 
 use crate::widget::Widget;
 

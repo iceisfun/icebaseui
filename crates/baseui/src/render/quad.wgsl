@@ -4,6 +4,9 @@
 //   mode 0 = a rounded, optionally bordered rectangle, anti-aliased via a
 //            signed-distance field.
 //   mode 1 = a glyph, sampled (as coverage) from the R8 font atlas.
+//   mode 2 = a squiggle: a wavy line through the quad, drawn analytically (no
+//            atlas) — editor-style error/warning underlines. `params.x` is the
+//            wavelength and `params.y` the thickness, both in logical pixels.
 //
 // Positions arrive in logical pixels (top-left origin) and are converted to
 // physical pixels (× scale) and then to normalized device coordinates. Colors
@@ -94,7 +97,22 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let aa = max(fwidth(d), 1e-4);
     let cover = clamp(0.5 - d / aa, 0.0, 1.0);
 
+    // Squiggle coverage — also computed at top level, for the same reason:
+    // fwidth() must not sit inside non-uniform control flow.
+    let local = in.pos_px - in.rect.xy;
+    let band_h = in.rect.w;
+    let period = max(in.params.x, 1.0);
+    let amp = band_h * 0.28;
+    let wave = band_h * 0.5 + amp * sin(local.x * 6.2831853 / period);
+    let sd = abs(local.y - wave) - max(in.params.y, 1.0) * 0.5;
+    let saa = max(fwidth(sd), 1e-4);
+    let scover = clamp(0.5 - sd / saa, 0.0, 1.0);
+
     let mode = in.params.z;
+    if (mode > 1.5) {
+        // Squiggle: analytic wavy line, anti-aliased.
+        return vec4<f32>(in.color.rgb, in.color.a * scover);
+    }
     if (mode > 0.5) {
         // Glyph: coverage from the atlas, tinted by color.
         return vec4<f32>(in.color.rgb, in.color.a * glyph_a);

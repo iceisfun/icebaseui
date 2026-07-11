@@ -73,11 +73,39 @@ pub struct TextShape {
     pub font: FontId,
 }
 
+/// A text decoration drawn under/through a run of text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Decoration {
+    /// A straight line along the bottom of the band.
+    Underline,
+    /// A wavy line — editor-style error/warning squiggles.
+    Squiggle,
+    /// A line through the middle of the band.
+    Strikethrough,
+}
+
+/// A decoration over a horizontal span of text.
+///
+/// `rect` is the band to decorate: its `x`/`width` are the run's extent, and its
+/// `y`/`height` the vertical band the decoration lives in (typically the text
+/// line box).
+#[derive(Clone, Copy, Debug)]
+pub struct DecorationShape {
+    pub rect: Rect,
+    pub color: Color,
+    pub kind: Decoration,
+    /// Line thickness in logical pixels.
+    pub thickness: f32,
+    /// Wavelength of a [`Decoration::Squiggle`], in logical pixels.
+    pub period: f32,
+}
+
 /// A single drawable primitive.
 #[derive(Clone, Debug)]
 pub enum Primitive {
     Rect(RectShape),
     Text(TextShape),
+    Decoration(DecorationShape),
 }
 
 /// One entry in a scene's command stream. Clip commands bracket primitives and
@@ -208,6 +236,33 @@ impl Scene {
             size,
             color,
             font,
+        });
+    }
+
+    /// Push a fully-specified decoration.
+    pub fn push_decoration(&mut self, shape: DecorationShape) {
+        self.emit(Command::Draw(Primitive::Decoration(shape)));
+    }
+
+    /// Convenience: a wavy underline across `rect` — an error/warning squiggle.
+    pub fn squiggle(&mut self, rect: Rect, color: Color) {
+        self.push_decoration(DecorationShape {
+            rect,
+            color,
+            kind: Decoration::Squiggle,
+            thickness: 1.4,
+            period: 6.0,
+        });
+    }
+
+    /// Convenience: a straight underline across `rect`.
+    pub fn underline(&mut self, rect: Rect, color: Color) {
+        self.push_decoration(DecorationShape {
+            rect,
+            color,
+            kind: Decoration::Underline,
+            thickness: 1.0,
+            period: 0.0,
         });
     }
 

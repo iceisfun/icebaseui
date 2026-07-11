@@ -47,7 +47,7 @@ pub use app::{App, Frame, WindowConfig};
 pub use icon::Icon;
 pub use theme::Theme;
 pub use widget::{
-    Button, Checkbox, ComboBox, Column, DragValue, HexView, Label, Menu, MenuBar, PropGroup,
+    Button, Checkbox, Column, ComboBox, DragValue, HexView, Label, Menu, MenuBar, PropGroup,
     PropertyView, Row, ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar,
     TreeNode, TreeView, Widget,
 };

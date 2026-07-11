@@ -121,7 +121,13 @@ impl HexView {
     }
 
     /// Map a pointer position (absolute) to the byte index under it, if any.
-    fn byte_at(&self, cx_fonts: &crate::text::Fonts, bounds: Rect, pos: Point, pad: f32) -> Option<usize> {
+    fn byte_at(
+        &self,
+        cx_fonts: &crate::text::Fonts,
+        bounds: Rect,
+        pos: Point,
+        pad: f32,
+    ) -> Option<usize> {
         let char_w = cx_fonts.char_advance('0', self.font_size, FontId::Mono);
         let row_h = cx_fonts.line_height(self.font_size, FontId::Mono);
         let inner_left = bounds.left() + pad;
