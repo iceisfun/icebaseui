@@ -73,9 +73,45 @@ pub struct PaintCx<'a> {
 }
 
 /// Context shared by the event pass.
+///
+/// Carries a `consumed` flag: a widget that handles an event (e.g. an open menu
+/// swallowing clicks over its dropdown) calls [`EventCx::consume`], and
+/// containers stop delivering that event to later siblings — instead sending
+/// them a synthetic [`InputEvent::PointerLeft`] so their hover state clears.
+/// This is what stops clicks/hover from bleeding through a popup to the widgets
+/// beneath it.
 pub struct EventCx<'a> {
     pub fonts: &'a Fonts,
     pub theme: &'a Theme,
+    consumed: bool,
+}
+
+impl<'a> EventCx<'a> {
+    pub fn new(fonts: &'a Fonts, theme: &'a Theme) -> Self {
+        EventCx {
+            fonts,
+            theme,
+            consumed: false,
+        }
+    }
+
+    /// Mark the current event as handled; later siblings will not receive it.
+    pub fn consume(&mut self) {
+        self.consumed = true;
+    }
+
+    /// Whether the current event has already been consumed upstream.
+    pub fn is_consumed(&self) -> bool {
+        self.consumed
+    }
+
+    /// The event a child should receive given the current consumed state: the
+    /// real `event` if nothing has consumed it yet, otherwise a synthetic
+    /// [`InputEvent::PointerLeft`] so the child clears any hover state.
+    pub(crate) fn effective<'e>(&self, event: &'e InputEvent) -> &'e InputEvent {
+        const LEAVE: InputEvent = InputEvent::PointerLeft;
+        if self.consumed { &LEAVE } else { event }
+    }
 }
 
 /// A retained UI element. See the [module docs](self) for the three-pass model.
@@ -172,10 +208,7 @@ mod tests {
         // 10 pad + 20 + 5 spacing + 30 + 10 pad = 75 tall; 100 + 20 pad = 120 wide.
         assert_eq!(size, Size::new(120.0, 75.0));
 
-        let mut ecx = EventCx {
-            fonts: &fonts,
-            theme: &theme,
-        };
+        let mut ecx = EventCx::new(&fonts, &theme);
         col.event(
             &mut ecx,
             Rect::new(Point::ZERO, size),
@@ -206,10 +239,7 @@ mod tests {
         let inside = bounds.center();
         let outside = Point::new(bounds.right() + 50.0, bounds.bottom() + 50.0);
 
-        let mut ecx = EventCx {
-            fonts: &fonts,
-            theme: &theme,
-        };
+        let mut ecx = EventCx::new(&fonts, &theme);
         let mut send = |b: &mut Button, e: InputEvent| {
             b.event(&mut ecx, bounds, &e);
         };

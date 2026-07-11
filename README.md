@@ -34,11 +34,13 @@ baseui/
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
 │       ├── icon         # Icon type + glyph icons + embedded font-gis pack
+│       ├── command      # command registry + shortcuts + Command Palette (F1)
+│       ├── focus        # keyboard focus (thread-local)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, HexView, ScrollArea, TreeView,
 │       │                #   PropertyView, TabView, Split, MenuBar, Toolbar,
 │       │                #   StatusBar
-│       └── app          # App shell + winit event loop + input routing
+│       └── app          # App shell + winit loop + pointer/keyboard routing
 ├── docs/
 │   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
 └── examples/
@@ -94,7 +96,11 @@ cargo clippy --workspace
       fixed + flexible panes with drag gutters), and an `icon` system with the
       embedded **font-gis** pack (367 icons) rendered through the glyph atlas.
       See the `inspector` example (full app shell).
-- [ ] **M7 — Systems:** command system, event bus, shortcut manager, persistence.
+- [~] **M7 — Systems:** ✅ command system (registry with id/title/category/
+      icon/color/shortcut + handler; run/all/search), shortcut manager
+      (chord→command), a searchable **Command Palette** (F1), and keyboard input
+      + focus. Plus event-capture (popups no longer leak clicks) and menu-item
+      icons/options + tree glyph icons. Remaining: event bus, persistence.
 - [ ] **M8 — Extensibility:** plugin registration, icon packs, optional docking
       (`baseui-dock`), optional Lua (mlua) scripting.
 

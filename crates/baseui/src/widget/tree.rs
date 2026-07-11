@@ -25,6 +25,7 @@ const ICON_W: f32 = 14.0;
 pub struct TreeNode {
     id: Id,
     label: String,
+    icon: Option<crate::icon::Icon>,
     icon_color: Option<Color>,
     children: Vec<TreeNode>,
     expanded: bool,
@@ -46,6 +47,7 @@ impl TreeNode {
         TreeNode {
             id: Id::next(),
             label: label.into(),
+            icon: None,
             icon_color: None,
             children: Vec::new(),
             expanded: false,
@@ -58,11 +60,19 @@ impl TreeNode {
         TreeNode {
             id: Id::next(),
             label: label.into(),
+            icon: None,
             icon_color: None,
             children,
             expanded: true,
             actions: Vec::new(),
         }
+    }
+
+    /// Use a glyph icon (UI or icon-font) as the node's type marker, instead of
+    /// the default colored dot. Combine with [`TreeNode::icon_color`] to tint it.
+    pub fn icon(mut self, icon: crate::icon::Icon) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     /// Set the type-icon color (a colored dot beside the label).
@@ -111,6 +121,7 @@ struct FlatRow {
     id: Id,
     depth: usize,
     label: String,
+    icon: Option<crate::icon::Icon>,
     icon_color: Option<Color>,
     has_children: bool,
     expanded: bool,
@@ -123,6 +134,7 @@ fn flatten(nodes: &[TreeNode], depth: usize, out: &mut Vec<FlatRow>) {
             id: node.id,
             depth,
             label: node.label.clone(),
+            icon: node.icon,
             icon_color: node.icon_color,
             has_children: node.has_children(),
             expanded: node.expanded,
@@ -244,14 +256,25 @@ impl Widget for TreeView {
                 scene.text(Point::new(base_x, text_y), arrow, self.font_size, p.text_muted);
             }
 
-            // Colored type icon (a rounded square).
+            // Type icon: a glyph if provided, else a colored dot.
             let icon_x = base_x + ARROW_W;
-            let dot = 9.0;
-            scene.rounded_rect(
-                Rect::from_xywh(icon_x, y + (self.row_h - dot) * 0.5, dot, dot),
-                row.icon_color.unwrap_or(p.text_muted),
-                2.5,
-            );
+            let icon_color = row.icon_color.unwrap_or(p.text_muted);
+            if let Some(icon) = row.icon {
+                scene.text_font(
+                    Point::new(icon_x, text_y),
+                    icon.ch().to_string(),
+                    self.font_size,
+                    icon_color,
+                    icon.font_id(),
+                );
+            } else {
+                let dot = 9.0;
+                scene.rounded_rect(
+                    Rect::from_xywh(icon_x, y + (self.row_h - dot) * 0.5, dot, dot),
+                    icon_color,
+                    2.5,
+                );
+            }
 
             // Label.
             let label_x = icon_x + ICON_W + cx.theme.spacing.xs;

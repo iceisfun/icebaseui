@@ -11,15 +11,26 @@ use baseui_core::{Insets, Point, Rect, Size};
 
 use super::{EventCx, LayoutCx, PaintCx, Widget};
 use crate::event::{InputEvent, PointerButton};
+use crate::icon::{Icon, glyphs};
 use crate::layout::Constraints;
 use crate::text::FontId;
 
 type Action = Box<dyn FnMut()>;
 
 enum Entry {
-    Item { label: String, on: Action },
+    Item {
+        icon: Option<Icon>,
+        label: String,
+        on: Action,
+        /// Optional right-aligned "options" button (Maya-style: e.g. Create ▸
+        /// Cube with a gear to set subdivisions), with its own handler.
+        options: Option<Action>,
+    },
     Separator,
 }
+
+/// Width reserved on the right of an item for its options button.
+const OPTIONS_W: f32 = 26.0;
 
 /// One top-level menu (a title plus its dropdown entries).
 pub struct Menu {
@@ -38,8 +49,45 @@ impl Menu {
     /// Add a command item.
     pub fn item(mut self, label: impl Into<String>, on: impl FnMut() + 'static) -> Self {
         self.entries.push(Entry::Item {
+            icon: None,
             label: label.into(),
             on: Box::new(on),
+            options: None,
+        });
+        self
+    }
+
+    /// Add a command item with a leading icon.
+    pub fn item_icon(
+        mut self,
+        icon: Icon,
+        label: impl Into<String>,
+        on: impl FnMut() + 'static,
+    ) -> Self {
+        self.entries.push(Entry::Item {
+            icon: Some(icon),
+            label: label.into(),
+            on: Box::new(on),
+            options: None,
+        });
+        self
+    }
+
+    /// Add an item with a leading icon and a right-aligned options button
+    /// (Maya's "Create ▸ Cube ▸ ⚙" pattern). `options` runs when the gear is
+    /// clicked; `on` runs for the rest of the row.
+    pub fn item_options(
+        mut self,
+        icon: Icon,
+        label: impl Into<String>,
+        on: impl FnMut() + 'static,
+        options: impl FnMut() + 'static,
+    ) -> Self {
+        self.entries.push(Entry::Item {
+            icon: Some(icon),
+            label: label.into(),
+            on: Box::new(on),
+            options: Some(Box::new(options)),
         });
         self
     }
@@ -93,8 +141,18 @@ impl MenuBar {
 
         let mut width = MENU_MIN_W;
         for entry in &menu.entries {
-            if let Entry::Item { label, .. } = entry {
-                width = width.max(fonts.measure(label, self.font_size, FontId::Ui).width + pad * 2.0);
+            if let Entry::Item {
+                icon, label, options, ..
+            } = entry
+            {
+                let mut w = fonts.measure(label, self.font_size, FontId::Ui).width + pad * 2.0;
+                if let Some(icon) = icon {
+                    w += fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + 8.0;
+                }
+                if options.is_some() {
+                    w += OPTIONS_W;
+                }
+                width = width.max(w);
             }
         }
 
@@ -177,7 +235,9 @@ impl Widget for MenuBar {
             for (k, entry) in self.menus[i].entries.iter().enumerate() {
                 let r = rects[k];
                 match entry {
-                    Entry::Item { label, .. } => {
+                    Entry::Item {
+                        icon, label, options, ..
+                    } => {
                         if self.hovered_item == Some(k) {
                             scene.rounded_rect(
                                 r.shrink(Insets::symmetric(3.0, 1.0)),
@@ -185,12 +245,31 @@ impl Widget for MenuBar {
                                 cx.theme.radius.sm,
                             );
                         }
-                        scene.text(
-                            Point::new(r.left() + 10.0, r.top() + (r.height() - line_h) * 0.5),
-                            label.clone(),
-                            self.font_size,
-                            p.text,
-                        );
+                        let ty = r.top() + (r.height() - line_h) * 0.5;
+                        let mut tx = r.left() + 10.0;
+                        if let Some(icon) = icon {
+                            scene.text_font(
+                                Point::new(tx, ty),
+                                icon.ch().to_string(),
+                                self.font_size,
+                                p.text,
+                                icon.font_id(),
+                            );
+                            tx += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                                + 8.0;
+                        }
+                        scene.text(Point::new(tx, ty), label.clone(), self.font_size, p.text);
+                        if options.is_some() {
+                            // Right-aligned options gear.
+                            let gx = r.right() - OPTIONS_W + 6.0;
+                            scene.text_font(
+                                Point::new(gx, ty),
+                                glyphs::GEAR.ch().to_string(),
+                                self.font_size,
+                                p.text_muted,
+                                glyphs::GEAR.font_id(),
+                            );
+                        }
                     }
                     Entry::Separator => {
                         let y = r.center().y;
@@ -214,12 +293,20 @@ impl Widget for MenuBar {
                     .position(|r| super::absolute(bounds, *r).contains(*pos));
                 self.hovered_item = None;
                 if let Some(i) = self.open {
-                    let (_panel, rects) = self.dropdown(cx.fonts, bounds, i);
+                    let (panel, rects) = self.dropdown(cx.fonts, bounds, i);
                     for (k, r) in rects.iter().enumerate() {
                         if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos) {
                             self.hovered_item = Some(k);
                         }
                     }
+                    // Swallow moves over the open dropdown so widgets beneath it
+                    // don't hover through the popup.
+                    if panel.contains(*pos) {
+                        cx.consume();
+                    }
+                }
+                if bounds.contains(*pos) {
+                    cx.consume();
                 }
             }
             InputEvent::PointerLeft => {
@@ -237,22 +324,33 @@ impl Widget for MenuBar {
                     .position(|r| super::absolute(bounds, *r).contains(*pos))
                 {
                     self.open = if self.open == Some(i) { None } else { Some(i) };
+                    cx.consume();
                     return;
                 }
-                // Item click, or dismiss.
+                // Item click, or dismiss (both while a menu is open consume the
+                // click so it doesn't fall through to widgets below).
                 if let Some(i) = self.open {
-                    let (_panel, rects) = self.dropdown(cx.fonts, bounds, i);
-                    let mut ran = None;
+                    let (panel, rects) = self.dropdown(cx.fonts, bounds, i);
+                    let mut hit = None;
                     for (k, r) in rects.iter().enumerate() {
-                        if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos) {
-                            ran = Some(k);
+                        if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos)
+                        {
+                            // Right options-gear zone vs the rest of the row.
+                            let on_options = pos.x >= r.right() - OPTIONS_W;
+                            hit = Some((k, on_options));
                             break;
                         }
                     }
-                    if let Some(k) = ran {
-                        if let Entry::Item { on, .. } = &mut self.menus[i].entries[k] {
-                            on();
+                    if let Some((k, on_options)) = hit {
+                        if let Entry::Item { on, options, .. } = &mut self.menus[i].entries[k] {
+                            match (on_options, options) {
+                                (true, Some(opts)) => opts(),
+                                _ => on(),
+                            }
                         }
+                    }
+                    if panel.contains(*pos) || hit.is_some() {
+                        cx.consume();
                     }
                     self.open = None; // click on item or outside both dismiss
                 }

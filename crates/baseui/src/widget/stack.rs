@@ -86,7 +86,8 @@ impl Stack {
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
         for (child, rel) in self.children.iter_mut().zip(&self.child_rects) {
-            child.event(cx, absolute(bounds, *rel), event);
+            let ev = cx.effective(event);
+            child.event(cx, absolute(bounds, *rel), ev);
         }
     }
 }

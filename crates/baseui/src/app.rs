@@ -21,9 +21,10 @@ use baseui_core::{Point, Rect, Size, Vec2};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key as WKey, NamedKey};
 use winit::window::{Window, WindowId};
 
-use crate::event::{InputEvent, PointerButton};
+use crate::event::{InputEvent, Key, Modifiers, PointerButton};
 use crate::layout::Constraints;
 use crate::render::Renderer;
 use crate::text::Fonts;
@@ -74,6 +75,8 @@ pub struct App {
     scene: Scene,
     fonts: Option<Rc<Fonts>>,
     pointer: Point,
+    modifiers: Modifiers,
+    palette: crate::command::CommandPalette,
     state: Option<WindowState>,
 }
 
@@ -94,6 +97,8 @@ impl App {
             scene: Scene::new(),
             fonts: None,
             pointer: Point::ZERO,
+            modifiers: Modifiers::default(),
+            palette: crate::command::CommandPalette::new(),
             state: None,
         }
     }
@@ -153,14 +158,64 @@ impl App {
     fn dispatch(&mut self, event: InputEvent) {
         let bounds = self.root_bounds();
         if let (Some(root), Some(fonts)) = (self.root.as_mut(), self.fonts.as_ref()) {
-            let mut cx = EventCx {
-                fonts,
-                theme: &self.theme,
-            };
+            let mut cx = EventCx::new(fonts, &self.theme);
             root.event(&mut cx, bounds, &event);
         }
         if let Some(state) = self.state.as_ref() {
             state.window.request_redraw();
+        }
+    }
+
+    fn request_redraw(&self) {
+        if let Some(state) = self.state.as_ref() {
+            state.window.request_redraw();
+        }
+    }
+
+    /// Route a keyboard event: the open command palette first, then global
+    /// shortcuts (including `F1` to toggle the palette), then the focused widget.
+    fn handle_keyboard(&mut self, key: Option<Key>, pressed: bool, text: Option<String>) {
+        if self.palette.is_open() {
+            if pressed {
+                if let Some(k) = &key {
+                    self.palette.on_key(k, self.modifiers);
+                }
+            }
+            if let Some(t) = &text {
+                self.palette.on_text(t);
+            }
+            self.request_redraw();
+            return;
+        }
+
+        if pressed {
+            if let Some(k) = &key {
+                let chord = crate::command::chord_of(k, self.modifiers);
+                if chord == "f1" || chord == "ctrl+shift+p" {
+                    self.palette.toggle();
+                    self.request_redraw();
+                    return;
+                }
+                if let Some(id) = crate::command::command_for_chord(&chord) {
+                    crate::command::run(&id);
+                    self.request_redraw();
+                    return;
+                }
+            }
+        }
+
+        // Deliver to the focused widget.
+        if let Some(k) = key {
+            self.dispatch(InputEvent::Key {
+                key: k,
+                pressed,
+                mods: self.modifiers,
+            });
+        }
+        if pressed {
+            if let Some(t) = text {
+                self.dispatch(InputEvent::Text { text: t });
+            }
         }
     }
 
@@ -192,6 +247,11 @@ impl App {
             ui(&mut self.scene, &frame);
         }
 
+        // The command palette draws above everything (in the overlay layer).
+        if let Some(fonts) = self.fonts.as_ref() {
+            self.palette.paint(fonts, &self.theme, logical, &mut self.scene);
+        }
+
         if let Err(e) = state
             .renderer
             .render(&self.scene, self.theme.palette.background)
@@ -208,6 +268,43 @@ fn map_button(button: MouseButton) -> Option<PointerButton> {
         MouseButton::Left => Some(PointerButton::Primary),
         MouseButton::Right => Some(PointerButton::Secondary),
         MouseButton::Middle => Some(PointerButton::Middle),
+        _ => None,
+    }
+}
+
+/// Map a winit logical key to our normalized [`Key`].
+fn map_key(key: &WKey) -> Option<Key> {
+    match key {
+        WKey::Named(named) => Some(match named {
+            NamedKey::Escape => Key::Escape,
+            NamedKey::Enter => Key::Enter,
+            NamedKey::Tab => Key::Tab,
+            NamedKey::Backspace => Key::Backspace,
+            NamedKey::Delete => Key::Delete,
+            NamedKey::ArrowLeft => Key::Left,
+            NamedKey::ArrowRight => Key::Right,
+            NamedKey::ArrowUp => Key::Up,
+            NamedKey::ArrowDown => Key::Down,
+            NamedKey::Home => Key::Home,
+            NamedKey::End => Key::End,
+            NamedKey::PageUp => Key::PageUp,
+            NamedKey::PageDown => Key::PageDown,
+            NamedKey::Space => Key::Space,
+            NamedKey::F1 => Key::Function(1),
+            NamedKey::F2 => Key::Function(2),
+            NamedKey::F3 => Key::Function(3),
+            NamedKey::F4 => Key::Function(4),
+            NamedKey::F5 => Key::Function(5),
+            NamedKey::F6 => Key::Function(6),
+            NamedKey::F7 => Key::Function(7),
+            NamedKey::F8 => Key::Function(8),
+            NamedKey::F9 => Key::Function(9),
+            NamedKey::F10 => Key::Function(10),
+            NamedKey::F11 => Key::Function(11),
+            NamedKey::F12 => Key::Function(12),
+            other => Key::Named(format!("{other:?}")),
+        }),
+        WKey::Character(s) => s.chars().next().map(Key::Character),
         _ => None,
     }
 }
@@ -251,6 +348,12 @@ impl ApplicationHandler for App {
         // Reactive → repaint bridge: any signal write requests a redraw.
         let redraw_target = window.clone();
         reactive::set_on_change(move || redraw_target.request_redraw());
+
+        // Debug aid (screenshots / scripted demos): open the command palette on
+        // startup when BASEUI_OPEN_PALETTE is set.
+        if std::env::var_os("BASEUI_OPEN_PALETTE").is_some() {
+            self.palette.toggle();
+        }
 
         match Renderer::new(window.clone(), fonts) {
             Ok(renderer) => {
@@ -331,6 +434,25 @@ impl ApplicationHandler for App {
                 };
                 let pos = self.pointer;
                 self.dispatch(InputEvent::Scroll { pos, delta });
+            }
+            WindowEvent::ModifiersChanged(mods) => {
+                let s = mods.state();
+                self.modifiers = Modifiers {
+                    ctrl: s.control_key(),
+                    shift: s.shift_key(),
+                    alt: s.alt_key(),
+                    meta: s.super_key(),
+                };
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                let pressed = event.state == ElementState::Pressed;
+                let key = map_key(&event.logical_key);
+                let text = if pressed {
+                    event.text.as_ref().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                self.handle_keyboard(key, pressed, text);
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);

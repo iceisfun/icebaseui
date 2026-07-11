@@ -297,7 +297,8 @@ impl Widget for Split {
         }
 
         for pane in &mut self.panes {
-            pane.widget.event(cx, absolute(bounds, pane.rect), event);
+            let ev = cx.effective(event);
+            pane.widget.event(cx, absolute(bounds, pane.rect), ev);
         }
     }
 }
@@ -344,10 +345,7 @@ mod tests {
         assert!((split.panes[1].rect.width() - 588.0).abs() < 0.5);
 
         let bounds = Rect::from_xywh(0.0, 0.0, 1000.0, 500.0);
-        let mut ecx = EventCx {
-            fonts: &fonts,
-            theme: &theme,
-        };
+        let mut ecx = EventCx::new(&fonts, &theme);
         split.event(
             &mut ecx,
             bounds,
