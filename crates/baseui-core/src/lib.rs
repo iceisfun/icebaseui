@@ -18,6 +18,7 @@
 pub mod color;
 pub mod geometry;
 pub mod id;
+pub mod paint;
 pub mod reactive;
 
 pub use color::Color;

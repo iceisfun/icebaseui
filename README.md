@@ -59,8 +59,9 @@ cargo clippy --workspace
 
 - [x] **M1 — Foundation:** workspace, core primitives, reactive runtime, theme
       engine, wgpu window shell.
-- [ ] **M2 — 2D painter:** batched rounded-rects, borders, clipping, text/glyph
-      atlas — a display list the widget tree can emit.
+- [x] **M2 — 2D painter:** `Scene` display list + a single instanced-quad wgpu
+      pipeline drawing SDF rounded-rects, borders, per-quad clipping, and text
+      (ab_glyph glyph atlas, system font via fontdb).
 - [ ] **M3 — Widget tree + layout:** `Widget` trait, retained node tree wired to
       signals, layout solver (Row/Column/Grid/Stack/Scroll), input routing.
 - [ ] **M4 — Core widgets:** Label, Button, Toggle, Checkbox, TextBox, Slider,

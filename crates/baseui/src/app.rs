@@ -1,13 +1,18 @@
 //! The application shell: window creation and the winit event loop.
 //!
 //! [`App`] is the entry point an application uses to get a themed window on
-//! screen. For this foundation milestone it opens a single window and clears it
-//! to the active theme's background color. The event loop, window lifecycle, and
-//! renderer ownership established here are what later milestones (layout, widget
-//! tree, input routing) will hook into.
+//! screen. Each frame it clears to the theme background, invokes the
+//! application's UI callback to populate a [`Scene`], and renders that scene.
+//!
+//! The UI callback is the temporary seam for this milestone: it hands the app a
+//! raw [`Scene`] plus a [`Frame`] context (logical size + theme). Later
+//! milestones replace it with the retained widget tree, but the window/event/
+//! render plumbing established here stays the same.
 
 use std::sync::Arc;
 
+use baseui_core::Size;
+use baseui_core::paint::Scene;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -34,18 +39,29 @@ impl Default for WindowConfig {
     }
 }
 
-/// Live per-window state: the window handle and its renderer. Created lazily on
-/// the first `resumed` event, per winit 0.30's application model.
+/// Per-frame context passed to the application's UI callback.
+pub struct Frame<'a> {
+    /// The drawable surface size in logical pixels.
+    pub size: Size,
+    /// The active theme.
+    pub theme: &'a Theme,
+}
+
+type UiFn = Box<dyn FnMut(&mut Scene, &Frame<'_>)>;
+
+/// Live per-window state: window handle and its renderer.
 struct WindowState {
     window: Arc<Window>,
     renderer: Renderer,
 }
 
 /// The BaseUI application. Build one with [`App::new`], configure it with the
-/// builder methods, then call [`App::run`].
+/// builder methods, set a UI callback with [`App::on_frame`], then [`App::run`].
 pub struct App {
     config: WindowConfig,
     theme: Theme,
+    ui: Option<UiFn>,
+    scene: Scene,
     state: Option<WindowState>,
 }
 
@@ -56,12 +72,13 @@ impl Default for App {
 }
 
 impl App {
-    /// Create an application with default configuration and the default (dark)
-    /// theme.
+    /// Create an application with default configuration and the dark theme.
     pub fn new() -> Self {
         App {
             config: WindowConfig::default(),
             theme: Theme::default(),
+            ui: None,
+            scene: Scene::new(),
             state: None,
         }
     }
@@ -85,14 +102,43 @@ impl App {
         self
     }
 
+    /// Set the per-frame UI callback. It receives a fresh (cleared) [`Scene`] to
+    /// populate and a [`Frame`] describing the surface.
+    pub fn on_frame(mut self, ui: impl FnMut(&mut Scene, &Frame<'_>) + 'static) -> Self {
+        self.ui = Some(Box::new(ui));
+        self
+    }
+
     /// Run the application. Blocks until the window is closed.
     pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
-        // Wait for events rather than spinning; this is a conventional desktop
-        // app, not a game loop. Redraws are requested explicitly when needed.
         event_loop.set_control_flow(ControlFlow::Wait);
         event_loop.run_app(&mut self)?;
         Ok(())
+    }
+
+    /// Rebuild the scene from the UI callback and draw a frame.
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+
+        self.scene.clear();
+        if let Some(ui) = self.ui.as_mut() {
+            let frame = Frame {
+                size: state.renderer.logical_size(),
+                theme: &self.theme,
+            };
+            ui(&mut self.scene, &frame);
+        }
+
+        if let Err(e) = state
+            .renderer
+            .render(&self.scene, self.theme.palette.background)
+        {
+            log::error!("render error: {e}");
+            event_loop.exit();
+        }
     }
 }
 
@@ -120,6 +166,7 @@ impl ApplicationHandler for App {
 
         match Renderer::new(window.clone()) {
             Ok(renderer) => {
+                window.request_redraw();
                 self.state = Some(WindowState { window, renderer });
             }
             Err(e) => {
@@ -135,11 +182,13 @@ impl ApplicationHandler for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-        if state.window.id() != window_id {
-            return;
+        {
+            let Some(state) = self.state.as_ref() else {
+                return;
+            };
+            if state.window.id() != window_id {
+                return;
+            }
         }
 
         match event {
@@ -147,14 +196,19 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                state.renderer.resize(new_size);
-                state.window.request_redraw();
+                if let Some(state) = self.state.as_mut() {
+                    state.renderer.resize(new_size);
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                if let Some(state) = self.state.as_mut() {
+                    state.renderer.set_scale_factor(scale_factor);
+                    state.window.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested => {
-                if let Err(e) = state.renderer.render(self.theme.palette.background) {
-                    log::error!("render error: {e}");
-                    event_loop.exit();
-                }
+                self.redraw(event_loop);
             }
             _ => {}
         }

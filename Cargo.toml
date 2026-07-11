@@ -23,6 +23,10 @@ wgpu = "26"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 
+# Text rendering
+ab_glyph = "0.2"
+fontdb = "0.23"
+
 # Utilities
 log = "0.4"
 env_logger = "0.11"

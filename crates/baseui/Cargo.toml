@@ -13,4 +13,6 @@ winit.workspace = true
 wgpu.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true
+ab_glyph.workspace = true
+fontdb.workspace = true
 log.workspace = true

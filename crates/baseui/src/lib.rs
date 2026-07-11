@@ -30,10 +30,11 @@ pub mod app;
 pub mod render;
 pub mod theme;
 
-pub use app::{App, WindowConfig};
+pub use app::{App, Frame, WindowConfig};
 pub use theme::Theme;
 
 // Re-export the dependency-free core so downstream code has one import root.
 pub use baseui_core as core;
+pub use baseui_core::paint::{self, Scene};
 pub use baseui_core::reactive;
 pub use baseui_core::{Color, Id, Insets, Point, Rect, Signal, Size, Vec2};
