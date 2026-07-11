@@ -53,6 +53,14 @@ pub struct Diagnostic {
     pub color: Color,
 }
 
+/// Default row height, as a multiple of the font's natural line box.
+///
+/// Faces routinely report a line box of `ascent + descent` with **zero** line
+/// gap, which is too tight to read as code and leaves nowhere to draw a
+/// diagnostic underline that is not on top of the glyphs. Editors all add
+/// leading; so do we.
+pub const DEFAULT_LINE_SPACING: f32 = 1.2;
+
 type ChangeFn = Box<dyn FnMut(&str)>;
 /// Recomputes diagnostics from the whole document after every edit.
 pub type Checker = Box<dyn Fn(&str) -> Vec<Diagnostic>>;
@@ -75,6 +83,8 @@ pub struct TextArea {
     scroll_y: f32,
     font_size: f32,
     font: FontId,
+    /// Row height as a multiple of the font's natural line box.
+    line_spacing: f32,
     line_numbers: bool,
     read_only: bool,
     highlighter: Option<Highlighter>,
@@ -96,6 +106,7 @@ impl TextArea {
             scroll_y: 0.0,
             font_size: 13.0,
             font: FontId::Mono,
+            line_spacing: DEFAULT_LINE_SPACING,
             line_numbers: false,
             read_only: false,
             highlighter: None,
@@ -108,6 +119,14 @@ impl TextArea {
 
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = size;
+        self
+    }
+
+    /// Row height as a multiple of the font's natural line box (default
+    /// [`DEFAULT_LINE_SPACING`]). `1.0` packs lines as tightly as the face allows
+    /// — which usually leaves no room under the text for a squiggle.
+    pub fn line_spacing(mut self, factor: f32) -> Self {
+        self.line_spacing = factor.max(1.0);
         self
     }
 
@@ -338,8 +357,30 @@ impl TextArea {
 
     // -- geometry ----------------------------------------------------------
 
+    /// The height of one row: the font's natural line box times [`Self::line_spacing`].
+    ///
+    /// Glyphs are drawn at the **top** of the row, so the extra leading lands
+    /// underneath them — which is where the descenders and the diagnostic
+    /// squiggles have to live. A face's natural line box is often just
+    /// `ascent + descent` with no gap at all, leaving literally nowhere to put an
+    /// underline that is not on top of the text.
     fn line_height(&self, cx_fonts: &crate::text::Fonts) -> f32 {
-        cx_fonts.line_height(self.font_size, self.font)
+        cx_fonts.line_height(self.font_size, self.font) * self.line_spacing
+    }
+
+    /// The band a squiggle occupies under a run of text, relative to the row top.
+    ///
+    /// Anchored to the **baseline**, not to the bottom of the row: the row bottom
+    /// is a different distance below the text for every face and size, so a
+    /// squiggle placed there lands on the glyphs for some of them. Start half a
+    /// descent below the baseline — clear of every glyph that has no descender,
+    /// and only grazing the tails of `p`/`g`/`y`, which is what editors do.
+    fn squiggle_band(&self, cx_fonts: &crate::text::Fonts) -> (f32, f32) {
+        let m = cx_fonts.metrics(self.font_size, self.font);
+        let top = m.ascent + m.descent * 0.5;
+        // Enough amplitude to read as a wave, but never past the row.
+        let height = (4.5 * crate::text::scale()).min(self.line_height(cx_fonts) - top);
+        (top, height.max(3.0))
     }
 
     fn gutter_width(&self, cx_fonts: &crate::text::Fonts) -> f32 {
@@ -503,6 +544,7 @@ impl Widget for TextArea {
         let focused = focus::has(self.id);
         let line_h = self.line_height(cx.fonts);
         let gutter = self.gutter_width(cx.fonts);
+        let (band_top, band_h) = self.squiggle_band(cx.fonts);
 
         scene.push_rect(
             RectShape::fill(bounds, p.surface_variant)
@@ -593,16 +635,17 @@ impl Widget for TextArea {
                 );
             }
 
-            // Diagnostics: a wavy underline under the range.
+            // Diagnostics: a wavy underline under the range, sitting just below
+            // the baseline (see `squiggle_band`).
             for d in self.diagnostics.iter().filter(|d| d.line == i) {
                 let (x0, x1) = line.span(d.start.min(len), d.end.min(len));
                 if x1 > x0 {
                     scene.squiggle(
                         Rect::from_xywh(
                             text_left + x0 - self.scroll_x,
-                            y + line_h - 5.0 * s,
+                            y + band_top,
                             x1 - x0,
-                            5.0 * s,
+                            band_h,
                         ),
                         d.color,
                     );
@@ -785,6 +828,63 @@ mod tests {
         t.insert("1\n2\n3");
         assert_eq!(t.lines, vec!["a1", "2", "3b"]);
         assert_eq!(t.caret, (2, 1));
+    }
+
+    /// The squiggle must sit *under* the text, not through it.
+    ///
+    /// The first attempt anchored it to the bottom of the line box, which is a
+    /// different distance below the baseline for every face and size — for a
+    /// typical mono face at 13px it put the wave's crest **above** the baseline,
+    /// straight through the glyphs. Anchor to the baseline instead, and assert it.
+    #[test]
+    fn the_squiggle_sits_below_the_baseline_and_inside_the_row() {
+        let Some(fonts) = Fonts::load() else { return };
+
+        for font in [FontId::Mono, FontId::Ui] {
+            for size in [11.0, 13.0, 14.0, 18.0] {
+                let t = TextArea::new("x").font_size(size);
+                let area = if font == FontId::Ui {
+                    TextArea::new("x").font_size(size).proportional()
+                } else {
+                    t
+                };
+
+                let m = fonts.metrics(size, font);
+                let row = area.line_height(&fonts);
+                let (top, height) = area.squiggle_band(&fonts);
+
+                assert!(
+                    top >= m.ascent,
+                    "{font:?}@{size}: squiggle starts {top} but the baseline is at \
+                     {} -- it would cut through the glyphs",
+                    m.ascent
+                );
+                assert!(
+                    top + height <= row + 0.01,
+                    "{font:?}@{size}: squiggle ends at {} but the row is only {row} tall",
+                    top + height
+                );
+                assert!(
+                    height >= 3.0,
+                    "{font:?}@{size}: a {height}px wave is not legible"
+                );
+            }
+        }
+    }
+
+    /// The default row is taller than the face's own line box — otherwise there
+    /// is nowhere to put the squiggle at all.
+    #[test]
+    fn rows_carry_leading_below_the_text() {
+        let Some(fonts) = Fonts::load() else { return };
+        let area = TextArea::new("x").font_size(13.0);
+
+        let natural = fonts.line_height(13.0, FontId::Mono);
+        assert!(area.line_height(&fonts) > natural);
+
+        // Opting out is allowed, but never below the face's own box.
+        let tight = TextArea::new("x").font_size(13.0).line_spacing(0.5);
+        assert!((tight.line_height(&fonts) - natural).abs() < 0.01);
     }
 
     #[test]
