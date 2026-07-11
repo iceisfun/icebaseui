@@ -351,6 +351,22 @@ impl TextArea {
         i
     }
 
+    /// Where Home lands: the first non-whitespace character, or column 0 if the
+    /// caret is already there.
+    ///
+    /// Pressing Home in indented code should take you to the **code**, not to
+    /// column 0 with the indentation in between — but column 0 still has to be
+    /// reachable, so the two toggle. This is what every code editor does, and it
+    /// is why Home is not simply `0`.
+    fn smart_home(&self, line: usize, col: usize) -> usize {
+        let indent = self.lines[line]
+            .chars()
+            .position(|c| !c.is_whitespace())
+            .unwrap_or_else(|| self.line_len(line)); // an all-whitespace line
+
+        if col == indent { 0 } else { indent }
+    }
+
     /// The end of the word at or after `col` — where Ctrl+Right lands.
     fn word_end(&self, line: usize, col: usize) -> usize {
         let chars: Vec<char> = self.lines[line].chars().collect();
@@ -610,7 +626,7 @@ impl TextArea {
                 let last = self.lines.len().saturating_sub(1);
                 self.move_caret((last, self.line_len(last)), shift);
             }
-            Key::Home => self.move_caret((line, 0), shift),
+            Key::Home => self.move_caret((line, self.smart_home(line, col)), shift),
             Key::End => self.move_caret((line, self.line_len(line)), shift),
             Key::PageUp => self.move_caret((line.saturating_sub(20), col), shift),
             Key::PageDown => self.move_caret((line + 20, col), shift),
@@ -1181,6 +1197,40 @@ mod tests {
         t.event(&mut cx, bounds, &ctrl_shift(Key::End));
         assert_eq!(t.anchor, Some((0, 0)));
         assert_eq!(t.caret, (2, 5));
+    }
+
+    /// Home goes to the *code*, not to column 0 with the indentation in between —
+    /// but column 0 still has to be reachable, so the two toggle.
+    #[test]
+    fn home_toggles_between_the_indent_and_column_zero() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = ta("    let x = 1;"); // four spaces of indent
+        t.caret = (0, 11);
+
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(
+            t.caret,
+            (0, 4),
+            "first Home lands on the code, not column 0"
+        );
+
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(t.caret, (0, 0), "already at the indent -> go to column 0");
+
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(t.caret, (0, 4), "and back again: the two toggle");
+
+        // A line with no indent: Home is just column 0, and stays there.
+        let mut t = ta("no indent");
+        t.caret = (0, 5);
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(t.caret, (0, 0));
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(t.caret, (0, 0), "nothing to toggle to");
     }
 
     #[test]

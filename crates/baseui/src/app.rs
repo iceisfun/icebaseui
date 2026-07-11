@@ -294,7 +294,19 @@ impl App {
         }
         if pressed {
             if let Some(t) = text {
-                self.dispatch(index, InputEvent::Text { text: t });
+                // A chord is not typing. The platform still reports `text` for
+                // Ctrl+Z (winit hands back "z"), so forwarding it unconditionally
+                // makes every editing widget run the shortcut *and* then insert
+                // the letter.
+                //
+                // Alt is deliberately not in this test: on many keyboard layouts
+                // AltGr — which arrives as Ctrl+Alt — is how you type `@`, `#`, or
+                // `€`, and suppressing that would break text entry for a large
+                // part of the world. So: Ctrl or Meta suppresses text, unless Alt
+                // is also down.
+                if !suppresses_text(self.modifiers) {
+                    self.dispatch(index, InputEvent::Text { text: t });
+                }
             }
         }
     }
@@ -481,6 +493,21 @@ fn map_button(button: MouseButton) -> Option<PointerButton> {
         MouseButton::Middle => Some(PointerButton::Middle),
         _ => None,
     }
+}
+
+/// Whether this modifier state means "a chord, not typing", so the key's `text`
+/// must **not** be delivered as text input.
+///
+/// The platform reports `text` even for chords — winit hands back `"z"` for
+/// Ctrl+Z — so a widget that trusts it will run the shortcut *and* insert the
+/// letter.
+///
+/// Alt is deliberately absent from the test. On many keyboard layouts AltGr is
+/// how you type `@`, `#`, or `€`, and it arrives as **Ctrl+Alt**; treating that
+/// as a chord would break text entry for a large part of the world. So Ctrl or
+/// Meta suppresses text — unless Alt is also held.
+fn suppresses_text(mods: Modifiers) -> bool {
+    (mods.ctrl || mods.meta) && !mods.alt
 }
 
 /// Map a winit logical key to our normalized [`Key`].
@@ -703,5 +730,51 @@ impl ApplicationHandler for App {
         if self.windows.is_empty() {
             event_loop.exit();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Ctrl+Z bug: the platform reports `text` for chords too, so a widget
+    /// that trusts it runs the shortcut *and* types the letter.
+    #[test]
+    fn chords_do_not_produce_text_input() {
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        let meta = Modifiers {
+            meta: true,
+            ..Default::default()
+        };
+        assert!(suppresses_text(ctrl), "ctrl+z must not also insert a 'z'");
+        assert!(suppresses_text(meta), "cmd+z must not also insert a 'z'");
+    }
+
+    /// Typing — with or without shift — is text.
+    #[test]
+    fn plain_and_shifted_keys_still_type() {
+        assert!(!suppresses_text(Modifiers::default()));
+        assert!(!suppresses_text(Modifiers {
+            shift: true,
+            ..Default::default()
+        }));
+    }
+
+    /// AltGr arrives as Ctrl+Alt and is how much of the world types `@`, `#`, and
+    /// `€`. Treating it as a chord would break text entry for those layouts.
+    #[test]
+    fn altgr_still_types() {
+        assert!(!suppresses_text(Modifiers {
+            ctrl: true,
+            alt: true,
+            ..Default::default()
+        }));
+        assert!(!suppresses_text(Modifiers {
+            alt: true,
+            ..Default::default()
+        }));
     }
 }
