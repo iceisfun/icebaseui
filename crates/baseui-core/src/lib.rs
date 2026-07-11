@@ -16,12 +16,14 @@
 //!   and effects) that powers BaseUI's retained + reactive widget tree.
 
 pub mod color;
+pub mod font;
 pub mod geometry;
 pub mod id;
 pub mod paint;
 pub mod reactive;
 
 pub use color::Color;
+pub use font::FontId;
 pub use geometry::{Insets, Point, Rect, Size, Vec2};
 pub use id::Id;
 pub use reactive::{Memo, Signal, create_effect, create_memo, create_signal, set_on_change};

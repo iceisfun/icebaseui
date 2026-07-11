@@ -139,8 +139,10 @@ impl GlyphRenderer {
         clip: Rect,
         out: &mut Vec<QuadInstance>,
     ) {
-        let font_id = if shape.mono { FontId::Mono } else { FontId::Ui };
-        let font = self.fonts.face(font_id);
+        let font_id = shape.font;
+        let Some(font) = self.fonts.face(font_id) else {
+            return; // font (e.g. an unregistered icon font) not loaded
+        };
 
         let px = (shape.size * scale).round().max(1.0);
         let px_scale = PxScale::from(px);

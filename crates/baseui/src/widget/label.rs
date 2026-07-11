@@ -84,7 +84,7 @@ impl Widget for Label {
             text: self.cached.clone(),
             size: self.size,
             color,
-            mono: self.font == FontId::Mono,
+            font: self.font,
         });
     }
 }

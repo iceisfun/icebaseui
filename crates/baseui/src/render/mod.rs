@@ -158,12 +158,18 @@ impl Renderer {
     /// rasterizing glyphs into the atlas as needed.
     fn build_instances(&mut self, scene: &Scene) {
         self.instances.clear();
+        // Base layer first, then the overlay layer on top; each layer has its
+        // own clip stack so popups escape the clips of the base tree.
+        self.flatten_commands(scene.commands());
+        self.flatten_commands(scene.overlay());
+    }
 
+    fn flatten_commands(&mut self, commands: &[Command]) {
         let logical = self.logical_size();
         let root_clip = Rect::from_xywh(0.0, 0.0, logical.width, logical.height);
         let mut clip_stack: Vec<Rect> = vec![root_clip];
 
-        for command in scene.commands() {
+        for command in commands {
             match command {
                 Command::PushClip(rect) => {
                     let current = *clip_stack.last().unwrap();

@@ -203,7 +203,7 @@ impl Widget for HexView {
                 text,
                 size: self.font_size,
                 color,
-                mono: true,
+                font: FontId::Mono,
             });
         };
 

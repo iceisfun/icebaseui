@@ -16,7 +16,7 @@ use crate::text::FontId;
 
 struct Tab {
     title: String,
-    icon: Option<char>,
+    icon: Option<Icon>,
     content: Box<dyn Widget>,
     header_rect: Rect,
 }
@@ -64,7 +64,7 @@ impl TabView {
     ) -> Self {
         self.tabs.push(Tab {
             title: title.into(),
-            icon: Some(icon.ch()),
+            icon: Some(icon),
             content: Box::new(content),
             header_rect: Rect::ZERO,
         });
@@ -106,7 +106,8 @@ impl Widget for TabView {
                 // borrow split: measure without &mut self
                 let mut w = cx.fonts.measure(&tab.title, self.font_size, FontId::Ui).width;
                 if let Some(icon) = tab.icon {
-                    w += cx.fonts.char_advance(icon, self.font_size, FontId::Ui) + pad * 0.5;
+                    w += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                        + pad * 0.5;
                 }
                 w + pad * 2.0
             };
@@ -150,8 +151,14 @@ impl Widget for TabView {
             let ty = hr.top() + (hr.height() - line_h) * 0.5;
             let mut tx = hr.left() + cx.theme.spacing.md;
             if let Some(icon) = tab.icon {
-                scene.text(Point::new(tx, ty), icon.to_string(), self.font_size, color);
-                tx += cx.fonts.char_advance(icon, self.font_size, FontId::Ui)
+                scene.text_font(
+                    Point::new(tx, ty),
+                    icon.ch().to_string(),
+                    self.font_size,
+                    color,
+                    icon.font_id(),
+                );
+                tx += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
                     + cx.theme.spacing.sm;
             }
             scene.text(Point::new(tx, ty), tab.title.clone(), self.font_size, color);

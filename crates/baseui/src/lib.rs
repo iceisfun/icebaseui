@@ -39,8 +39,9 @@ pub use app::{App, Frame, WindowConfig};
 pub use icon::Icon;
 pub use theme::Theme;
 pub use widget::{
-    Button, Checkbox, Column, DragValue, HexView, Label, PropGroup, PropertyView, Row, ScrollArea,
-    Slider, Split, TabView, TreeNode, TreeView, Widget,
+    Button, Checkbox, Column, DragValue, HexView, Label, Menu, MenuBar, PropGroup, PropertyView,
+    Row, ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, Toolbar, TreeNode, TreeView,
+    Widget,
 };
 
 // Re-export the dependency-free core so downstream code has one import root.

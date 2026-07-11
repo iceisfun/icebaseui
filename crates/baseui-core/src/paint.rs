@@ -18,7 +18,7 @@
 //! assert_eq!(scene.commands().len(), 2);
 //! ```
 
-use crate::{Color, Point, Rect};
+use crate::{Color, FontId, Point, Rect};
 
 /// A filled, optionally rounded and/or bordered rectangle.
 #[derive(Clone, Copy, Debug)]
@@ -69,8 +69,8 @@ pub struct TextShape {
     /// Font size in logical pixels.
     pub size: f32,
     pub color: Color,
-    /// Use the theme's monospace family instead of the UI family.
-    pub mono: bool,
+    /// Which font family to render with (UI, monospace, or an icon font).
+    pub font: FontId,
 }
 
 /// A single drawable primitive.
@@ -97,31 +97,65 @@ pub enum Command {
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
     commands: Vec<Command>,
+    /// Commands emitted inside an overlay scope, drawn *after* (above) the main
+    /// list. Used for popups, dropdown menus, and tooltips.
+    overlay: Vec<Command>,
+    overlay_depth: u32,
 }
 
 impl Scene {
     pub fn new() -> Self {
         Scene {
             commands: Vec::new(),
+            overlay: Vec::new(),
+            overlay_depth: 0,
         }
     }
 
     /// Remove all commands, retaining allocated capacity for reuse next frame.
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.overlay.clear();
+        self.overlay_depth = 0;
     }
 
+    /// The main (base-layer) command stream.
     pub fn commands(&self) -> &[Command] {
         &self.commands
     }
 
+    /// The overlay command stream, drawn above the main layer (popups/menus).
+    pub fn overlay(&self) -> &[Command] {
+        &self.overlay
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
+        self.commands.is_empty() && self.overlay.is_empty()
+    }
+
+    /// Enter an overlay scope: commands emitted until the matching
+    /// [`Scene::end_overlay`] are drawn above the base layer, with their own
+    /// clip stack (they escape enclosing clips). Scopes may nest.
+    pub fn begin_overlay(&mut self) {
+        self.overlay_depth += 1;
+    }
+
+    /// Leave the current overlay scope.
+    pub fn end_overlay(&mut self) {
+        self.overlay_depth = self.overlay_depth.saturating_sub(1);
+    }
+
+    fn emit(&mut self, command: Command) {
+        if self.overlay_depth > 0 {
+            self.overlay.push(command);
+        } else {
+            self.commands.push(command);
+        }
     }
 
     /// Push a fully-specified rectangle shape.
     pub fn push_rect(&mut self, shape: RectShape) {
-        self.commands.push(Command::Draw(Primitive::Rect(shape)));
+        self.emit(Command::Draw(Primitive::Rect(shape)));
     }
 
     /// Convenience: a solid, square-cornered fill.
@@ -145,7 +179,7 @@ impl Scene {
 
     /// Push a fully-specified text shape.
     pub fn push_text(&mut self, shape: TextShape) {
-        self.commands.push(Command::Draw(Primitive::Text(shape)));
+        self.emit(Command::Draw(Primitive::Text(shape)));
     }
 
     /// Convenience: UI-font text at `pos`.
@@ -155,18 +189,36 @@ impl Scene {
             text: text.into(),
             size,
             color,
-            mono: false,
+            font: FontId::Ui,
+        });
+    }
+
+    /// Convenience: text at `pos` in a specific font (UI, monospace, or icon).
+    pub fn text_font(
+        &mut self,
+        pos: Point,
+        text: impl Into<String>,
+        size: f32,
+        color: Color,
+        font: FontId,
+    ) {
+        self.push_text(TextShape {
+            pos,
+            text: text.into(),
+            size,
+            color,
+            font,
         });
     }
 
     /// Begin a clip region; subsequent primitives are clipped to the
     /// intersection of this and any enclosing clip. Balance with [`Scene::pop_clip`].
     pub fn push_clip(&mut self, rect: Rect) {
-        self.commands.push(Command::PushClip(rect));
+        self.emit(Command::PushClip(rect));
     }
 
     /// End the most recent clip region.
     pub fn pop_clip(&mut self) {
-        self.commands.push(Command::PopClip);
+        self.emit(Command::PopClip);
     }
 }

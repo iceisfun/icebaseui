@@ -33,10 +33,11 @@ baseui/
 │       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
-│       ├── icon         # built-in glyph icons (dogfooding set)
+│       ├── icon         # Icon type + glyph icons + embedded font-gis pack
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, HexView, ScrollArea, TreeView,
-│       │                #   PropertyView, TabView, Split
+│       │                #   PropertyView, TabView, Split, MenuBar, Toolbar,
+│       │                #   StatusBar
 │       └── app          # App shell + winit event loop + input routing
 ├── docs/
 │   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
@@ -87,10 +88,12 @@ cargo clippy --workspace
       colored type icons, selection, hover), and `PropertyView` (collapsible
       groups with colored section icons; rows embed real editor widgets). See
       the `inspector` example (Blender Outliner + Properties layout).
-- [~] **M6 — App frame:** ✅ `TabView` (icon/text tabs), resizable `Split`
-      (fixed + flexible panes with drag gutters), a glyph `icon` system, and
-      TreeView row action-icons (grey/colored toggles). Remaining: menu bar,
-      toolbar, status bar.
+- [x] **M6 — App frame:** `MenuBar` (dropdowns via a Scene overlay layer),
+      `Toolbar` (icon/text buttons, toggles, spacers), `StatusBar` (reactive
+      left/right items), `TabView`, resizable `Split` (horizontal + vertical,
+      fixed + flexible panes with drag gutters), and an `icon` system with the
+      embedded **font-gis** pack (367 icons) rendered through the glyph atlas.
+      See the `inspector` example (full app shell).
 - [ ] **M7 — Systems:** command system, event bus, shortcut manager, persistence.
 - [ ] **M8 — Extensibility:** plugin registration, icon packs, optional docking
       (`baseui-dock`), optional Lua (mlua) scripting.

@@ -35,7 +35,7 @@ pub struct TreeNode {
 /// render toggles): shown in `color` when enabled, greyed out when disabled.
 #[derive(Clone, Copy)]
 struct TreeAction {
-    icon: char,
+    icon: crate::icon::Icon,
     color: Color,
     enabled: bool,
 }
@@ -76,7 +76,7 @@ impl TreeNode {
     /// stack from the right edge.
     pub fn action(mut self, icon: crate::icon::Icon, color: Color, enabled: bool) -> Self {
         self.actions.push(TreeAction {
-            icon: icon.ch(),
+            icon,
             color,
             enabled,
         });
@@ -267,18 +267,20 @@ impl Widget for TreeView {
                 let start = actions_start_x(bounds, cx.theme.spacing.sm, row.actions.len());
                 for (k, action) in row.actions.iter().enumerate() {
                     let slot_left = start + k as f32 * ACTION_SLOT;
-                    let gw = cx.fonts.char_advance(action.icon, self.font_size, FontId::Ui);
+                    let font = action.icon.font_id();
+                    let gw = cx.fonts.char_advance(action.icon.ch(), self.font_size, font);
                     let gx = slot_left + (ACTION_SLOT - gw) * 0.5;
                     let color = if action.enabled {
                         action.color
                     } else {
                         p.text_muted
                     };
-                    scene.text(
+                    scene.text_font(
                         Point::new(gx, text_y),
-                        action.icon.to_string(),
+                        action.icon.ch().to_string(),
                         self.font_size,
                         color,
+                        font,
                     );
                 }
             }

@@ -1,0 +1,263 @@
+//! [`MenuBar`] and [`Menu`] — a top menu bar with dropdown menus.
+//!
+//! Clicking a title opens its dropdown, drawn in the [`Scene`] overlay layer so
+//! it floats above the rest of the UI. Clicking an item runs its command and
+//! closes the menu; clicking anywhere else dismisses it. Dismiss works because
+//! container widgets forward pointer events to all children, so the bar sees
+//! clicks that land outside it.
+
+use baseui_core::paint::{RectShape, Scene};
+use baseui_core::{Insets, Point, Rect, Size};
+
+use super::{EventCx, LayoutCx, PaintCx, Widget};
+use crate::event::{InputEvent, PointerButton};
+use crate::layout::Constraints;
+use crate::text::FontId;
+
+type Action = Box<dyn FnMut()>;
+
+enum Entry {
+    Item { label: String, on: Action },
+    Separator,
+}
+
+/// One top-level menu (a title plus its dropdown entries).
+pub struct Menu {
+    title: String,
+    entries: Vec<Entry>,
+}
+
+impl Menu {
+    pub fn new(title: impl Into<String>) -> Self {
+        Menu {
+            title: title.into(),
+            entries: Vec::new(),
+        }
+    }
+
+    /// Add a command item.
+    pub fn item(mut self, label: impl Into<String>, on: impl FnMut() + 'static) -> Self {
+        self.entries.push(Entry::Item {
+            label: label.into(),
+            on: Box::new(on),
+        });
+        self
+    }
+
+    /// Add a separator line.
+    pub fn separator(mut self) -> Self {
+        self.entries.push(Entry::Separator);
+        self
+    }
+}
+
+const SEPARATOR_H: f32 = 7.0;
+const MENU_MIN_W: f32 = 150.0;
+
+/// The top menu bar.
+pub struct MenuBar {
+    menus: Vec<Menu>,
+    open: Option<usize>,
+    hovered_title: Option<usize>,
+    hovered_item: Option<usize>,
+    font_size: f32,
+    bar_h: f32,
+    title_rects: Vec<Rect>,
+}
+
+impl MenuBar {
+    pub fn new() -> Self {
+        MenuBar {
+            menus: Vec::new(),
+            open: None,
+            hovered_title: None,
+            hovered_item: None,
+            font_size: 14.0,
+            bar_h: 30.0,
+            title_rects: Vec::new(),
+        }
+    }
+
+    pub fn menu(mut self, menu: Menu) -> Self {
+        self.menus.push(menu);
+        self
+    }
+
+    /// Geometry of the open dropdown: (panel rect, per-entry rects). Entry rects
+    /// align with `menu.entries` (separators included). All absolute.
+    fn dropdown(&self, fonts: &crate::text::Fonts, bounds: Rect, index: usize) -> (Rect, Vec<Rect>) {
+        let menu = &self.menus[index];
+        let line_h = fonts.line_height(self.font_size, FontId::Ui);
+        let item_h = line_h + 8.0;
+        let pad = 10.0;
+
+        let mut width = MENU_MIN_W;
+        for entry in &menu.entries {
+            if let Entry::Item { label, .. } = entry {
+                width = width.max(fonts.measure(label, self.font_size, FontId::Ui).width + pad * 2.0);
+            }
+        }
+
+        let title = self.title_rects[index];
+        let panel_x = bounds.left() + title.left();
+        let mut y = bounds.bottom();
+        let start_y = y;
+
+        let mut rects = Vec::with_capacity(menu.entries.len());
+        for entry in &menu.entries {
+            let h = match entry {
+                Entry::Item { .. } => item_h,
+                Entry::Separator => SEPARATOR_H,
+            };
+            rects.push(Rect::from_xywh(panel_x, y, width, h));
+            y += h;
+        }
+        let panel = Rect::from_xywh(panel_x, start_y, width, y - start_y);
+        (panel, rects)
+    }
+}
+
+impl Default for MenuBar {
+    fn default() -> Self {
+        MenuBar::new()
+    }
+}
+
+impl Widget for MenuBar {
+    fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
+        let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+        self.bar_h = line_h + cx.theme.spacing.sm * 2.0;
+        let w = if constraints.max.width.is_finite() {
+            constraints.max.width
+        } else {
+            800.0
+        };
+
+        self.title_rects.clear();
+        let mut x = cx.theme.spacing.sm;
+        for menu in &self.menus {
+            let tw = cx.fonts.measure(&menu.title, self.font_size, FontId::Ui).width
+                + cx.theme.spacing.md * 2.0;
+            self.title_rects.push(Rect::from_xywh(x, 0.0, tw, self.bar_h));
+            x += tw;
+        }
+
+        constraints.constrain(Size::new(w, self.bar_h))
+    }
+
+    fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene) {
+        let p = &cx.theme.palette;
+        scene.rect(bounds, p.surface);
+
+        let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+        for (i, menu) in self.menus.iter().enumerate() {
+            let tr = super::absolute(bounds, self.title_rects[i]);
+            if self.open == Some(i) {
+                scene.rounded_rect(tr, p.active, cx.theme.radius.sm);
+            } else if self.hovered_title == Some(i) {
+                scene.rounded_rect(tr, p.hover, cx.theme.radius.sm);
+            }
+            scene.text(
+                Point::new(tr.left() + cx.theme.spacing.md, tr.top() + (tr.height() - line_h) * 0.5),
+                menu.title.clone(),
+                self.font_size,
+                p.text,
+            );
+        }
+
+        // Open dropdown, in the overlay layer.
+        if let Some(i) = self.open {
+            let (panel, rects) = self.dropdown(cx.fonts, bounds, i);
+            scene.begin_overlay();
+            scene.push_rect(
+                RectShape::fill(panel, p.surface)
+                    .with_corner_radius(cx.theme.radius.md)
+                    .with_border(1.0, p.border),
+            );
+            for (k, entry) in self.menus[i].entries.iter().enumerate() {
+                let r = rects[k];
+                match entry {
+                    Entry::Item { label, .. } => {
+                        if self.hovered_item == Some(k) {
+                            scene.rounded_rect(
+                                r.shrink(Insets::symmetric(3.0, 1.0)),
+                                p.hover,
+                                cx.theme.radius.sm,
+                            );
+                        }
+                        scene.text(
+                            Point::new(r.left() + 10.0, r.top() + (r.height() - line_h) * 0.5),
+                            label.clone(),
+                            self.font_size,
+                            p.text,
+                        );
+                    }
+                    Entry::Separator => {
+                        let y = r.center().y;
+                        scene.rect(
+                            Rect::from_xywh(r.left() + 6.0, y, r.width() - 12.0, 1.0),
+                            p.border,
+                        );
+                    }
+                }
+            }
+            scene.end_overlay();
+        }
+    }
+
+    fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        match event {
+            InputEvent::PointerMoved { pos } => {
+                self.hovered_title = self
+                    .title_rects
+                    .iter()
+                    .position(|r| super::absolute(bounds, *r).contains(*pos));
+                self.hovered_item = None;
+                if let Some(i) = self.open {
+                    let (_panel, rects) = self.dropdown(cx.fonts, bounds, i);
+                    for (k, r) in rects.iter().enumerate() {
+                        if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos) {
+                            self.hovered_item = Some(k);
+                        }
+                    }
+                }
+            }
+            InputEvent::PointerLeft => {
+                self.hovered_title = None;
+                self.hovered_item = None;
+            }
+            InputEvent::PointerPressed {
+                pos,
+                button: PointerButton::Primary,
+            } => {
+                // Title click: toggle that menu.
+                if let Some(i) = self
+                    .title_rects
+                    .iter()
+                    .position(|r| super::absolute(bounds, *r).contains(*pos))
+                {
+                    self.open = if self.open == Some(i) { None } else { Some(i) };
+                    return;
+                }
+                // Item click, or dismiss.
+                if let Some(i) = self.open {
+                    let (_panel, rects) = self.dropdown(cx.fonts, bounds, i);
+                    let mut ran = None;
+                    for (k, r) in rects.iter().enumerate() {
+                        if matches!(self.menus[i].entries[k], Entry::Item { .. }) && r.contains(*pos) {
+                            ran = Some(k);
+                            break;
+                        }
+                    }
+                    if let Some(k) = ran {
+                        if let Entry::Item { on, .. } = &mut self.menus[i].entries[k] {
+                            on();
+                        }
+                    }
+                    self.open = None; // click on item or outside both dismiss
+                }
+            }
+            _ => {}
+        }
+    }
+}
