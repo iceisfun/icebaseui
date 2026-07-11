@@ -308,7 +308,7 @@ mod tests {
         assert!(!pv.groups[1].collapsed);
 
         // Open the list.
-        let mut cx = EventCx::new(&fonts, &theme);
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         pv.event(
             &mut cx,
             bounds,
@@ -324,7 +324,7 @@ mod tests {
         assert!(header.contains(pos), "test point must be over the header");
         assert!(pos.y > combo.bottom(), "test point must be inside the popup");
 
-        let mut cx = EventCx::new(&fonts, &theme);
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         pv.event(
             &mut cx,
             bounds,

@@ -26,6 +26,7 @@ mod drag_value;
 mod hex_view;
 mod label;
 mod menu;
+mod popup_menu;
 mod property;
 mod scroll;
 mod slider;
@@ -44,6 +45,7 @@ pub use drag_value::DragValue;
 pub use hex_view::HexView;
 pub use label::Label;
 pub use menu::{Menu, MenuBar};
+pub use popup_menu::{Activation, MenuItemSpec, PopupMenu};
 pub use property::{PropGroup, PropertyView};
 pub use scroll::ScrollArea;
 pub use slider::Slider;
@@ -74,6 +76,8 @@ pub struct LayoutCx<'a> {
 pub struct PaintCx<'a> {
     pub fonts: &'a Fonts,
     pub theme: &'a Theme,
+    /// The window's logical size — popups use it to stay on screen.
+    pub screen: Size,
 }
 
 /// Context shared by the event pass.
@@ -87,14 +91,17 @@ pub struct PaintCx<'a> {
 pub struct EventCx<'a> {
     pub fonts: &'a Fonts,
     pub theme: &'a Theme,
+    /// The window's logical size — popups use it to stay on screen.
+    pub screen: Size,
     consumed: bool,
 }
 
 impl<'a> EventCx<'a> {
-    pub fn new(fonts: &'a Fonts, theme: &'a Theme) -> Self {
+    pub fn new(fonts: &'a Fonts, theme: &'a Theme, screen: Size) -> Self {
         EventCx {
             fonts,
             theme,
+            screen,
             consumed: false,
         }
     }
@@ -224,7 +231,7 @@ mod tests {
         // 10 pad + 20 + 5 spacing + 30 + 10 pad = 75 tall; 100 + 20 pad = 120 wide.
         assert_eq!(size, Size::new(120.0, 75.0));
 
-        let mut ecx = EventCx::new(&fonts, &theme);
+        let mut ecx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         col.event(
             &mut ecx,
             Rect::new(Point::ZERO, size),
@@ -255,7 +262,7 @@ mod tests {
         let inside = bounds.center();
         let outside = Point::new(bounds.right() + 50.0, bounds.bottom() + 50.0);
 
-        let mut ecx = EventCx::new(&fonts, &theme);
+        let mut ecx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         let mut send = |b: &mut Button, e: InputEvent| {
             b.event(&mut ecx, bounds, &e);
         };

@@ -413,7 +413,7 @@ mod tests {
     use baseui_core::create_signal;
 
     fn ecx<'a>(fonts: &'a Fonts, theme: &'a Theme) -> EventCx<'a> {
-        EventCx::new(fonts, theme)
+        EventCx::new(fonts, theme, Size::new(1000.0, 1000.0))
     }
 
     #[test]

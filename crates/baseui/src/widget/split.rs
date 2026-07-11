@@ -387,7 +387,7 @@ mod tests {
         assert!((split.panes[1].rect.width() - 588.0).abs() < 0.5);
 
         let bounds = Rect::from_xywh(0.0, 0.0, 1000.0, 500.0);
-        let mut ecx = EventCx::new(&fonts, &theme);
+        let mut ecx = EventCx::new(&fonts, &theme, Size::new(1000.0, 1000.0));
         split.event(
             &mut ecx,
             bounds,

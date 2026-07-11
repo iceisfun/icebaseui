@@ -45,7 +45,7 @@ widget, different job.
 | Phase | Work | Status |
 | --- | --- | --- |
 | **0** | **Multi-window `App`** — split `Renderer` into a shared `GpuContext` (device, queue, quad pipeline, glyph atlas) and a per-window `WindowRenderer` (surface, config, size, DPI). `window::open(WindowSpec)` request queue. Reactive change repaints **all** windows. | ✅ **done** |
-| **1** | Reusable `Popup` (extracted from `MenuBar`, with flip/clamp when there's no room) + right-click routing (`PointerButton::Secondary`) | todo |
+| **1** | Reusable `Popup` (extracted from `MenuBar`, with flip/clamp when there's no room) + right-click routing (`PointerButton::Secondary`) | ✅ **done** |
 | **2** | Dock model + `DockArea` in a single window: id tree, tab groups, drag-reorder, drag-to-split with drop indicators, persistence | todo |
 | **3** | **Detach → floating window** (tear-off creates the window immediately), redock via indicators | todo |
 | **4** | **Live cross-window drag**: the torn-off window follows the cursor; other windows show drop indicators | todo |
@@ -68,6 +68,18 @@ widget, different job.
   per-window when it starts to matter.
 - **Known gap:** persistence covers the *main* window's tree and geometry.
   Multi-window layout persistence arrives with the dock id-tree (Phase 2/3).
+
+## Notes from Phase 1
+
+`PopupMenu` is now the single popup implementation, shared by the menu bar, combo
+boxes, and right-click context menus. It owns the four things each of them
+previously got subtly different: on-screen **placement** (`popup::place` — below,
+flip above, clamp), **overlay painting**, **event consumption**, and **keyboard
+modality**. A context menu is just a popup anchored to a zero-size rect at the
+click point.
+
+Dock tabs will reuse it directly for their right-click menu (Close / Close Others
+/ Detach) and for the overflow chevron.
 
 ## Phase 4 is the hard 20%
 

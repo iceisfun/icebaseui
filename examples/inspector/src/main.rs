@@ -22,9 +22,9 @@ use baseui::icon::{gis, glyphs};
 use baseui::layout::Constraints;
 use baseui::paint::Scene;
 use baseui::widget::{
-    Column, ComboBox, DragValue, Label, LayoutCx, Menu, MenuBar, PaintCx, PropGroup, PropertyView,
-    ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar, TreeNode, TreeView,
-    Widget,
+    Column, ComboBox, DragValue, Label, LayoutCx, Menu, MenuBar, MenuItemSpec, PaintCx, PropGroup,
+    PropertyView, ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar,
+    TreeNode, TreeView, Widget,
 };
 use baseui::window::{self, WindowSpec};
 use baseui::{App, Color, Icon, Point, Rect, Signal, Size};
@@ -271,6 +271,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // ...and the named channel, which scripts subscribe to.
         bus::publish_named("selection.changed", serde_json::json!({ "name": label }));
     })
+    // Right-click a row for a context menu (the same PopupMenu the menu bar and
+    // combo boxes use). Dock tabs will use this too.
+    .context_menu(
+        vec![
+            MenuItemSpec::new("Rename").icon(glyphs::GEAR),
+            MenuItemSpec::new("Duplicate").shortcut("Ctrl+D"),
+            MenuItemSpec::separator(),
+            MenuItemSpec::new("Detach to Window").icon(glyphs::SQUARE),
+            MenuItemSpec::separator(),
+            MenuItemSpec::new("Delete").disabled(),
+        ],
+        move |node, item| {
+            let action = match item {
+                0 => "Rename",
+                1 => "Duplicate",
+                3 => "Detach to Window",
+                _ => "?",
+            };
+            if item == 3 {
+                command::run("window.tool");
+            }
+            last_action.set(format!("{action}: {node}"));
+        },
+    )
     .persist("tree.outliner");
 
     // --- Tabbed inspector -------------------------------------------------

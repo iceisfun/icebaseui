@@ -1,18 +1,15 @@
 //! [`ComboBox`] — a dropdown that selects one of a fixed list of options,
 //! bound to a `Signal<usize>` (the selected index).
 //!
-//! Closed, it looks like a button showing the current option with a chevron.
-//! Open, its list is drawn in the [`Scene`] overlay layer (like [`MenuBar`]),
-//! and it swallows pointer events over its popup so clicks/hover don't leak to
-//! widgets beneath.
-//!
-//! [`MenuBar`]: super::MenuBar
+//! The list is a [`PopupMenu`], so it shares placement (flip/clamp to stay on
+//! screen), overlay painting, event consumption, and keyboard modality with the
+//! menu bar and context menus.
 
 use baseui_core::paint::{RectShape, Scene};
 use baseui_core::{Point, Rect, Signal, Size};
 
-use super::{EventCx, LayoutCx, PaintCx, Widget};
-use crate::event::{InputEvent, Key, PointerButton};
+use super::{EventCx, LayoutCx, MenuItemSpec, PaintCx, PopupMenu, Widget};
+use crate::event::{InputEvent, PointerButton};
 use crate::icon::glyphs;
 use crate::layout::Constraints;
 use crate::text::FontId;
@@ -21,23 +18,24 @@ use crate::text::FontId;
 pub struct ComboBox {
     options: Vec<String>,
     selected: Signal<usize>,
-    open: bool,
     hovered: bool,
-    hovered_item: Option<usize>,
     font_size: f32,
     width: Option<f32>,
+    menu: PopupMenu,
 }
 
 impl ComboBox {
-    pub fn new(selected: Signal<usize>, options: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    pub fn new(
+        selected: Signal<usize>,
+        options: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
         ComboBox {
             options: options.into_iter().map(Into::into).collect(),
             selected,
-            open: false,
             hovered: false,
-            hovered_item: None,
             font_size: 14.0,
             width: None,
+            menu: PopupMenu::new(),
         }
     }
 
@@ -49,43 +47,6 @@ impl ComboBox {
 
     fn selected_index(&self) -> usize {
         self.selected.get().min(self.options.len().saturating_sub(1))
-    }
-
-    /// Open/close the list. An open list is modal for the keyboard (it clears
-    /// focus, so a focused text field stops receiving keystrokes behind it).
-    fn set_open(&mut self, open: bool) {
-        if self.open == open {
-            return;
-        }
-        self.open = open;
-        self.hovered_item = None;
-        crate::popup::set_open(open);
-    }
-
-    fn item_height(&self, fonts: &crate::text::Fonts) -> f32 {
-        fonts.line_height(self.font_size, FontId::Ui) + 8.0
-    }
-
-    /// (panel rect, per-item rects), all absolute. Empty if there are no options.
-    fn dropdown(&self, fonts: &crate::text::Fonts, bounds: Rect) -> (Rect, Vec<Rect>) {
-        let item_h = self.item_height(fonts);
-        let panel = Rect::from_xywh(
-            bounds.left(),
-            bounds.bottom() + 2.0,
-            bounds.width(),
-            item_h * self.options.len() as f32,
-        );
-        let rects = (0..self.options.len())
-            .map(|i| {
-                Rect::from_xywh(
-                    panel.left(),
-                    panel.top() + i as f32 * item_h,
-                    panel.width(),
-                    item_h,
-                )
-            })
-            .collect();
-        (panel, rects)
     }
 }
 
@@ -107,8 +68,7 @@ impl Widget for ComboBox {
         let p = &cx.theme.palette;
         let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
 
-        // Closed button.
-        let border = if self.open {
+        let border = if self.menu.is_open() {
             p.accent
         } else if self.hovered {
             p.text_muted
@@ -120,6 +80,7 @@ impl Widget for ComboBox {
                 .with_corner_radius(cx.theme.radius.sm)
                 .with_border(1.0, border),
         );
+
         let ty = bounds.top() + (bounds.height() - line_h) * 0.5;
         if let Some(label) = self.options.get(self.selected_index()) {
             scene.text(
@@ -129,9 +90,11 @@ impl Widget for ComboBox {
                 p.text,
             );
         }
-        // Chevron.
+
         let chev = glyphs::CHEVRON_DOWN;
-        let cw = cx.fonts.char_advance(chev.ch(), self.font_size, chev.font_id());
+        let cw = cx
+            .fonts
+            .char_advance(chev.ch(), self.font_size, chev.font_id());
         scene.text_font(
             Point::new(bounds.right() - cx.theme.spacing.md - cw, ty),
             chev.ch().to_string(),
@@ -140,95 +103,111 @@ impl Widget for ComboBox {
             chev.font_id(),
         );
 
-        // Open list, in the overlay layer.
-        if self.open {
-            let (panel, rects) = self.dropdown(cx.fonts, bounds);
-            scene.begin_overlay();
-            scene.push_rect(
-                RectShape::fill(panel, p.surface)
-                    .with_corner_radius(cx.theme.radius.md)
-                    .with_border(1.0, p.border),
-            );
-            let selected = self.selected_index();
-            for (i, r) in rects.iter().enumerate() {
-                if self.hovered_item == Some(i) {
-                    scene.rounded_rect(
-                        r.shrink(baseui_core::Insets::symmetric(3.0, 1.0)),
-                        p.hover,
-                        cx.theme.radius.sm,
-                    );
-                } else if i == selected {
-                    scene.rounded_rect(
-                        r.shrink(baseui_core::Insets::symmetric(3.0, 1.0)),
-                        p.selection,
-                        cx.theme.radius.sm,
-                    );
-                }
-                let iy = r.top() + (r.height() - line_h) * 0.5;
-                scene.text(
-                    Point::new(r.left() + cx.theme.spacing.md, iy),
-                    self.options[i].clone(),
-                    self.font_size,
-                    p.text,
-                );
-            }
-            scene.end_overlay();
-        }
+        self.menu.paint(cx, scene);
     }
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        // Clicking the button itself toggles the list; that click must not be
+        // seen by the popup as a dismiss.
+        if let InputEvent::PointerPressed {
+            pos,
+            button: PointerButton::Primary,
+        } = event
+        {
+            if bounds.contains(*pos) {
+                if self.menu.is_open() {
+                    self.menu.close();
+                } else {
+                    let items = self
+                        .options
+                        .iter()
+                        .map(|o| MenuItemSpec::new(o.clone()))
+                        .collect();
+                    self.menu.set_selected(Some(self.selected_index()));
+                    self.menu.open_below(bounds, items);
+                }
+                cx.consume();
+                return;
+            }
+        }
+
+        if let Some(activation) = self.menu.event(cx, event) {
+            self.selected.set(activation.index);
+            return;
+        }
+        if cx.is_consumed() {
+            return;
+        }
+
         match event {
-            InputEvent::PointerMoved { pos } => {
-                self.hovered = bounds.contains(*pos);
-                self.hovered_item = None;
-                if self.open {
-                    let (panel, rects) = self.dropdown(cx.fonts, bounds);
-                    self.hovered_item = rects.iter().position(|r| r.contains(*pos));
-                    if panel.contains(*pos) {
-                        cx.consume();
-                    }
-                }
-                if bounds.contains(*pos) {
-                    cx.consume();
-                }
-            }
-            InputEvent::PointerLeft => {
-                self.hovered = false;
-                self.hovered_item = None;
-            }
-            InputEvent::PointerPressed {
-                pos,
-                button: PointerButton::Primary,
-            } => {
-                if bounds.contains(*pos) {
-                    let open = self.open;
-                    self.set_open(!open);
-                    cx.consume();
-                    return;
-                }
-                if self.open {
-                    let (panel, rects) = self.dropdown(cx.fonts, bounds);
-                    if let Some(i) = rects.iter().position(|r| r.contains(*pos)) {
-                        self.selected.set(i);
-                        cx.consume();
-                    } else if panel.contains(*pos) {
-                        cx.consume();
-                    }
-                    self.set_open(false);
-                }
-            }
-            // Escape closes the list (it is modal for the keyboard).
-            InputEvent::Key {
-                key: Key::Escape,
-                pressed: true,
-                ..
-            } => {
-                if self.open {
-                    self.set_open(false);
-                    cx.consume();
-                }
-            }
+            InputEvent::PointerMoved { pos } => self.hovered = bounds.contains(*pos),
+            InputEvent::PointerLeft => self.hovered = false,
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text::Fonts;
+    use crate::theme::Theme;
+    use baseui_core::create_signal;
+
+    /// Regression for the PopupMenu refactor: opening the list and clicking an
+    /// option must set the bound signal.
+    #[test]
+    fn picking_an_option_sets_the_signal() {
+        let Some(fonts) = Fonts::load() else {
+            return;
+        };
+        let theme = Theme::dark();
+        let screen = Size::new(800.0, 600.0);
+
+        let selected = create_signal(0usize);
+        let mut combo = ComboBox::new(selected, ["Alpha", "Beta", "Gamma"]);
+
+        let mut lcx = LayoutCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        let size = combo.layout(&mut lcx, Constraints::loose(Size::new(200.0, 40.0)));
+        let bounds = Rect::new(Point::new(20.0, 40.0), size);
+
+        // Click the button -> the list opens.
+        let mut cx = EventCx::new(&fonts, &theme, screen);
+        combo.event(
+            &mut cx,
+            bounds,
+            &InputEvent::PointerPressed {
+                pos: bounds.center(),
+                button: PointerButton::Primary,
+            },
+        );
+        assert!(combo.menu.is_open());
+
+        // Lay the popup out, then click the second option.
+        let mut cx = EventCx::new(&fonts, &theme, screen);
+        combo.event(
+            &mut cx,
+            bounds,
+            &InputEvent::PointerMoved {
+                pos: bounds.center(),
+            },
+        );
+        let panel = combo.menu.panel();
+        let item_h = panel.height() / 3.0;
+        let mut cx = EventCx::new(&fonts, &theme, screen);
+        combo.event(
+            &mut cx,
+            bounds,
+            &InputEvent::PointerPressed {
+                pos: Point::new(panel.center().x, panel.top() + item_h * 1.5),
+                button: PointerButton::Primary,
+            },
+        );
+
+        assert_eq!(selected.get(), 1, "clicking 'Beta' selects index 1");
+        assert!(!combo.menu.is_open());
     }
 }

@@ -206,7 +206,7 @@ impl App {
             self.windows[index].root.as_mut(),
             self.fonts.as_ref(),
         ) {
-            let mut cx = EventCx::new(fonts, &self.theme);
+            let mut cx = EventCx::new(fonts, &self.theme, logical);
             root.event(&mut cx, bounds, &event);
         }
         self.windows[index].window.request_redraw();
@@ -314,6 +314,7 @@ impl App {
             let mut pcx = PaintCx {
                 fonts,
                 theme: &self.theme,
+                screen: logical,
             };
             root.paint(&mut pcx, bounds, &mut state.scene);
         } else if state.is_main {

@@ -11,7 +11,7 @@
 use baseui_core::paint::Scene;
 use baseui_core::{Color, Id, Point, Rect, Size};
 
-use super::{EventCx, LayoutCx, PaintCx, Widget};
+use super::{EventCx, LayoutCx, MenuItemSpec, PaintCx, PopupMenu, Widget};
 use crate::event::{InputEvent, PointerButton};
 use crate::layout::Constraints;
 use crate::text::FontId;
@@ -201,6 +201,9 @@ fn apply_expanded(nodes: &mut [TreeNode], prefix: &str, set: &std::collections::
 /// Callback invoked with a node's label when it is selected.
 type SelectFn = Box<dyn FnMut(&str)>;
 
+/// Callback invoked with (node label, context-menu item index).
+type ContextFn = Box<dyn FnMut(&str, usize)>;
+
 /// A hierarchical list with expand/collapse and single selection.
 pub struct TreeView {
     roots: Vec<TreeNode>,
@@ -211,6 +214,11 @@ pub struct TreeView {
     row_h: f32,
     rows: Vec<FlatRow>,
     persist_key: Option<String>,
+    /// Right-click context menu (shared PopupMenu machinery).
+    context: PopupMenu,
+    context_items: Vec<MenuItemSpec>,
+    context_target: Option<Id>,
+    on_context: Option<ContextFn>,
 }
 
 impl TreeView {
@@ -224,8 +232,25 @@ impl TreeView {
             row_h: 22.0,
             rows: Vec::new(),
             persist_key: None,
+            context: PopupMenu::new(),
+            context_items: Vec::new(),
+            context_target: None,
+            on_context: None,
         }
     }
+
+    /// Attach a right-click context menu. The handler receives the label of the
+    /// row that was right-clicked and the index of the chosen item.
+    pub fn context_menu(
+        mut self,
+        items: Vec<MenuItemSpec>,
+        handler: impl FnMut(&str, usize) + 'static,
+    ) -> Self {
+        self.context_items = items;
+        self.on_context = Some(Box::new(handler));
+        self
+    }
+
 
     /// Called with the label of a node when it becomes selected.
     pub fn on_select(mut self, f: impl FnMut(&str) + 'static) -> Self {
@@ -360,9 +385,51 @@ impl Widget for TreeView {
                 }
             }
         }
+
+        self.context.paint(cx, scene);
     }
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        // The context menu floats above the rows: it gets events first, and
+        // consumes them, so a click in the popup can't also hit a row beneath.
+        if self.context.is_open() {
+            if let Some(activation) = self.context.event(cx, event) {
+                if let (Some(id), Some(handler)) =
+                    (self.context_target, self.on_context.as_mut())
+                {
+                    if let Some(label) = self
+                        .rows
+                        .iter()
+                        .find(|r| r.id == id)
+                        .map(|r| r.label.clone())
+                    {
+                        handler(&label, activation.index);
+                    }
+                }
+            }
+            if cx.is_consumed() {
+                return;
+            }
+        }
+
+        // Right-click a row: select it and open its context menu.
+        if let InputEvent::PointerPressed {
+            pos,
+            button: PointerButton::Secondary,
+        } = event
+        {
+            if bounds.contains(*pos) && !self.context_items.is_empty() {
+                if let Some(i) = self.row_at(pos.y - bounds.top()) {
+                    let id = self.rows[i].id;
+                    self.selected = Some(id);
+                    self.context_target = Some(id);
+                    self.context.open_at(*pos, self.context_items.clone());
+                    cx.consume();
+                    return;
+                }
+            }
+        }
+
         match event {
             InputEvent::PointerMoved { pos } => {
                 self.hovered = self
