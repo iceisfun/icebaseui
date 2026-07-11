@@ -66,6 +66,9 @@ struct WindowState {
     root: Option<Box<dyn Widget>>,
     scene: Scene,
     pointer: Point,
+    /// Command context this window activates while focused (scopes the palette
+    /// and shortcuts). `None` = the global set only.
+    context: Option<String>,
     /// The main window; closing it exits the app.
     is_main: bool,
 }
@@ -190,6 +193,17 @@ impl App {
         self.windows.iter().position(|w| w.window.id() == id)
     }
 
+    /// Focus moved: publish the focused window and activate its command context,
+    /// so the palette and shortcuts scope to it.
+    fn set_active(&mut self, id: Option<WindowId>) {
+        self.active = id;
+        window::set_focused(id);
+        let context = id
+            .and_then(|id| self.index_of(id))
+            .and_then(|i| self.windows[i].context.clone());
+        crate::command::set_active_context(context);
+    }
+
     fn request_redraw_all(&self) {
         for state in &self.windows {
             state.window.request_redraw();
@@ -201,12 +215,13 @@ impl App {
         self.refresh_theme();
         let logical = self.windows[index].renderer.logical_size();
         let bounds = Rect::from_xywh(0.0, 0.0, logical.width, logical.height);
+        let window_id = self.windows[index].window.id();
 
         if let (Some(root), Some(fonts)) = (
             self.windows[index].root.as_mut(),
             self.fonts.as_ref(),
         ) {
-            let mut cx = EventCx::new(fonts, &self.theme, logical);
+            let mut cx = EventCx::new(fonts, &self.theme, logical).with_window(window_id);
             root.event(&mut cx, bounds, &event);
         }
         self.windows[index].window.request_redraw();
@@ -308,6 +323,7 @@ impl App {
             let mut lcx = LayoutCx {
                 fonts,
                 theme: &self.theme,
+                window: Some(state.window.id()),
             };
             let size = root.layout(&mut lcx, Constraints::loose(logical));
             let bounds = Rect::new(Point::ZERO, size);
@@ -355,6 +371,7 @@ impl App {
         width: u32,
         height: u32,
         position: Option<(i32, i32)>,
+        context: Option<String>,
         root: Option<Box<dyn Widget>>,
         is_main: bool,
     ) -> Option<WindowId> {
@@ -406,6 +423,7 @@ impl App {
             root,
             scene: Scene::new(),
             pointer: Point::ZERO,
+            context,
             is_main,
         });
         Some(id)
@@ -422,6 +440,7 @@ impl App {
                         spec.width,
                         spec.height,
                         spec.position,
+                        spec.context,
                         Some(spec.root),
                         false,
                     );
@@ -530,11 +549,12 @@ impl ApplicationHandler for App {
 
         let root = self.pending_root.take();
         let title = self.config.title.clone();
-        let Some(id) = self.create_window(event_loop, &title, width, height, None, root, true)
+        let Some(id) =
+            self.create_window(event_loop, &title, width, height, None, None, root, true)
         else {
             return;
         };
-        self.active = Some(id);
+        self.set_active(Some(id));
 
         // Restore persisted widget state before the first layout.
         if self.persist_path.is_some() {
@@ -570,7 +590,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Focused(true) => {
-                self.active = Some(window_id);
+                self.set_active(Some(window_id));
             }
             WindowEvent::Resized(new_size) => {
                 if let Some(gpu) = self.gpu.as_ref() {

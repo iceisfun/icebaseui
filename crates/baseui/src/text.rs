@@ -36,6 +36,9 @@ thread_local! {
 /// [`MIN_SCALE`]..=[`MAX_SCALE`].
 pub fn set_scale(scale: f32) {
     TEXT_SCALE.with(|s| s.set(scale.clamp(MIN_SCALE, MAX_SCALE)));
+    // This is global state, not a signal, so nothing else would repaint. Every
+    // window's layout depends on it, so dirty them all.
+    crate::window::mark_dirty();
 }
 
 /// The current global text scale (`1.0` = 100%).

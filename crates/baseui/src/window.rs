@@ -35,6 +35,10 @@ pub struct WindowSpec {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) position: Option<(i32, i32)>,
+    /// Command context this window activates while focused. Commands registered
+    /// with the same context appear in *its* Command Palette (and its shortcuts
+    /// fire) but not in other windows'. See [`crate::command`].
+    pub(crate) context: Option<String>,
     pub(crate) root: Box<dyn Widget>,
 }
 
@@ -46,8 +50,16 @@ impl WindowSpec {
             width: 480,
             height: 360,
             position: None,
+            context: None,
             root: Box::new(root),
         }
+    }
+
+    /// Scope this window's Command Palette and shortcuts to a context: it shows
+    /// global commands **plus** those registered with this context.
+    pub fn context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
+        self
     }
 
     /// Initial size in logical pixels.
@@ -73,6 +85,17 @@ pub(crate) enum Request {
 thread_local! {
     static REQUESTS: RefCell<Vec<Request>> = const { RefCell::new(Vec::new()) };
     static DIRTY: Cell<bool> = const { Cell::new(false) };
+    static FOCUSED: Cell<Option<WindowId>> = const { Cell::new(None) };
+}
+
+/// The currently focused window, if any. Lets a command act on "this window"
+/// (e.g. a context-scoped "Close This Window") without being handed an id.
+pub fn focused() -> Option<WindowId> {
+    FOCUSED.with(|f| f.get())
+}
+
+pub(crate) fn set_focused(id: Option<WindowId>) {
+    FOCUSED.with(|f| f.set(id));
 }
 
 /// Queue a new window. It opens the next time the event loop goes idle.

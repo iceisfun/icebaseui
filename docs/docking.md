@@ -47,7 +47,7 @@ widget, different job.
 | **0** | **Multi-window `App`** — split `Renderer` into a shared `GpuContext` (device, queue, quad pipeline, glyph atlas) and a per-window `WindowRenderer` (surface, config, size, DPI). `window::open(WindowSpec)` request queue. Reactive change repaints **all** windows. | ✅ **done** |
 | **1** | Reusable `Popup` (extracted from `MenuBar`, with flip/clamp when there's no room) + right-click routing (`PointerButton::Secondary`) | ✅ **done** |
 | **2** | Dock model + `DockArea` in a single window: id tree, tab groups, drag-reorder, drag-to-split with drop indicators, persistence | DONE |
-| **3** | **Detach → floating window** (tear-off creates the window immediately), redock via indicators | todo |
+| **3** | **Detach → floating window**, redock, and per-window command contexts | DONE |
 | **4** | **Live cross-window drag**: the torn-off window follows the cursor; other windows show drop indicators | todo |
 
 ## Notes from Phase 0
@@ -103,6 +103,32 @@ events, so idle tabs cost nothing.
 Robustness: a persisted layout naming panels the app no longer registers is
 repaired (`drop_unknown`), and a panel registered but absent from the layout is
 adopted into the first group (`adopt_orphans`) rather than silently vanishing.
+
+## Notes from Phase 3
+
+Detaching a panel **moves owned content**: `take_panel` pulls the `Panel` out of
+the registry (and its id out of the tree), and hands it to a new window whose
+root is a `FloatingPanel`. Redocking pushes the same owned `Panel` onto a queue;
+the `DockArea` absorbs it on its next layout. No widget is ever shared,
+duplicated, or re-parented behind anyone's back — the direct payoff of splitting
+layout from content.
+
+### Per-window command palettes
+
+A detached window offers *different* commands than the main window. The right
+mechanism is **not** separate palette instances — it is **command contexts**, so
+the registry stays the single source of truth (a Rust command, a Lua command, and
+a menu item are all the same thing):
+
+- `CommandMeta::context("panel")` scopes a command.
+- `WindowSpec::context("panel")` declares what a window activates while focused.
+- The palette lists global commands **plus** the focused window's context; a
+  context-scoped **shortcut only fires in that context** (the SOW's
+  "context-sensitive shortcuts").
+
+So a floating panel window offers *Dock Panel Back* (Ctrl+D) and *Close This
+Panel Window*, which simply don't exist in the main window's palette. Commands
+that act on "this window" use `window::focused()`.
 
 ## Phase 4 is the hard 20%
 

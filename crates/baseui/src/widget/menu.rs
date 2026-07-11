@@ -305,6 +305,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let size = bar.layout(&mut lcx, Constraints::loose(Size::new(800.0, 40.0)));
         let bounds = Rect::new(Point::ZERO, size);

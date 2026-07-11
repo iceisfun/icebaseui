@@ -170,6 +170,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let size = combo.layout(&mut lcx, Constraints::loose(Size::new(200.0, 40.0)));
         let bounds = Rect::new(Point::new(20.0, 40.0), size);

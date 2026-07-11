@@ -299,6 +299,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let size = pv.layout(&mut lcx, Constraints::loose(Size::new(320.0, f32::INFINITY)));
         let bounds = Rect::new(Point::ZERO, size);
@@ -360,6 +361,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let c = Constraints::loose(Size::new(320.0, f32::INFINITY));
         let expanded = pv.layout(&mut lcx, c);

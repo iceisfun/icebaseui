@@ -379,6 +379,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let c = Constraints::tight(Size::new(1000.0, 500.0));
         split.layout(&mut lcx, c);
@@ -422,6 +423,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         split.layout(&mut lcx, Constraints::tight(Size::new(800.0, 600.0)));
         assert_eq!(split.panes[0].rect.height(), 40.0);

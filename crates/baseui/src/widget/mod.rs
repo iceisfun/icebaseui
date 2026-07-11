@@ -72,6 +72,8 @@ use crate::theme::Theme;
 pub struct LayoutCx<'a> {
     pub fonts: &'a Fonts,
     pub theme: &'a Theme,
+    /// Which window is being laid out, when known.
+    pub window: Option<crate::window::WindowId>,
 }
 
 /// Context shared by the paint pass.
@@ -95,6 +97,9 @@ pub struct EventCx<'a> {
     pub theme: &'a Theme,
     /// The window's logical size — popups use it to stay on screen.
     pub screen: Size,
+    /// Which window this event is being routed in. A widget needs this to close
+    /// or re-parent its own window (a detached dock panel docking itself back).
+    pub window: Option<crate::window::WindowId>,
     consumed: bool,
 }
 
@@ -104,8 +109,15 @@ impl<'a> EventCx<'a> {
             fonts,
             theme,
             screen,
+            window: None,
             consumed: false,
         }
+    }
+
+    /// Tag this context with the window it belongs to.
+    pub fn with_window(mut self, id: crate::window::WindowId) -> Self {
+        self.window = Some(id);
+        self
     }
 
     /// Mark the current event as handled; later siblings will not receive it.
@@ -228,6 +240,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let size = col.layout(&mut lcx, Constraints::loose(Size::new(1000.0, 1000.0)));
         // 10 pad + 20 + 5 spacing + 30 + 10 pad = 75 tall; 100 + 20 pad = 120 wide.
@@ -258,6 +271,7 @@ mod tests {
         let mut lcx = LayoutCx {
             fonts: &fonts,
             theme: &theme,
+            window: None,
         };
         let size = button.layout(&mut lcx, Constraints::loose(Size::new(1000.0, 1000.0)));
         let bounds = Rect::new(Point::ZERO, size);

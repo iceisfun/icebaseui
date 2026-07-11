@@ -20,6 +20,7 @@
 //! (a tab strip + a content rect) and gutters. Paint and event then work on flat
 //! lists; mutations are applied back to the tree by **path** (`Vec<usize>`).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use baseui_core::paint::{RectShape, Scene};
@@ -31,6 +32,73 @@ use crate::event::{InputEvent, PointerButton};
 use crate::icon::{Icon, glyphs};
 use crate::layout::Constraints;
 use crate::text::FontId;
+use crate::window::{self, WindowSpec};
+
+thread_local! {
+    /// Panels handed back by a floating window, waiting to be re-absorbed by the
+    /// DockArea on its next layout. Content moves as an owned `Panel`, so the
+    /// widget itself is never duplicated or re-parented behind anyone's back.
+    static REDOCK: RefCell<Vec<Panel>> = const { RefCell::new(Vec::new()) };
+}
+
+fn queue_redock(panel: Panel) {
+    REDOCK.with(|r| r.borrow_mut().push(panel));
+    window::mark_dirty();
+}
+
+fn take_redock() -> Vec<Panel> {
+    REDOCK.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
+thread_local! {
+    /// Windows asked (by command) to dock their panel back. The FloatingPanel
+    /// consumes its own request at layout time.
+    static REDOCK_REQUESTS: RefCell<Vec<window::WindowId>> = const { RefCell::new(Vec::new()) };
+}
+
+fn take_redock_request(id: Option<window::WindowId>) -> bool {
+    let Some(id) = id else { return false };
+    REDOCK_REQUESTS.with(|r| {
+        let mut r = r.borrow_mut();
+        if let Some(i) = r.iter().position(|w| *w == id) {
+            r.remove(i);
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Register the commands a **detached panel window** offers. They carry the
+/// `"panel"` context, so they appear in *that* window's Command Palette (and its
+/// shortcuts fire there) but not in the main window's — one registry, scoped
+/// visibility.
+fn register_panel_commands() {
+    crate::command::register(
+        crate::command::CommandMeta::new("panel.dock", "Dock Panel Back")
+            .category("Panel")
+            .context("panel")
+            .icon(glyphs::SQUARE)
+            .shortcut("Ctrl+D"),
+        || {
+            if let Some(id) = window::focused() {
+                REDOCK_REQUESTS.with(|r| r.borrow_mut().push(id));
+                window::mark_dirty();
+            }
+        },
+    );
+    crate::command::register(
+        crate::command::CommandMeta::new("panel.close_window", "Close This Panel Window")
+            .category("Panel")
+            .context("panel")
+            .icon(glyphs::CROSS),
+        || {
+            if let Some(id) = window::focused() {
+                window::close(id);
+            }
+        },
+    );
+}
 
 /// Which way a dock split divides its children.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -210,6 +278,7 @@ pub struct DockArea {
 
 impl DockArea {
     pub fn new(root: DockNode) -> Self {
+        register_panel_commands();
         DockArea {
             root,
             panels: HashMap::new(),
@@ -537,6 +606,10 @@ impl Widget for DockArea {
             600.0
         };
 
+        // Absorb any panels a floating window handed back.
+        for panel in take_redock() {
+            self.panels.insert(panel.id.clone(), panel);
+        }
         self.drop_unknown();
         self.adopt_orphans();
 
@@ -906,6 +979,8 @@ fn context_items() -> Vec<MenuItemSpec> {
         MenuItemSpec::new("Close"),
         MenuItemSpec::new("Close Others"),
         MenuItemSpec::separator(),
+        MenuItemSpec::new("Detach to Window").icon(glyphs::SQUARE),
+        MenuItemSpec::separator(),
         MenuItemSpec::new("Split Right"),
         MenuItemSpec::new("Split Down"),
     ]
@@ -1166,7 +1241,9 @@ impl DockArea {
         }
     }
 
-    fn close_panel(&mut self, id: &str) {
+    /// Remove a panel from the layout tree AND the registry, handing back owned
+    /// content. This is what makes detaching cheap: the widget simply moves.
+    fn take_panel(&mut self, id: &str) -> Option<Panel> {
         let known: Vec<String> = self
             .panels
             .keys()
@@ -1176,12 +1253,30 @@ impl DockArea {
         retain_panels(&mut self.root, &known);
         let root = std::mem::replace(&mut self.root, DockNode::tabs(Vec::<String>::new()));
         self.root = prune(root).unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
-        self.panels.remove(id);
+        self.panels.remove(id)
+    }
+
+    fn close_panel(&mut self, id: &str) {
+        self.take_panel(id);
+    }
+
+    /// Move a panel out of the dock and into its own OS window.
+    fn detach_panel(&mut self, id: &str) {
+        let Some(panel) = self.take_panel(id) else {
+            return;
+        };
+        let title = format!("BaseUI — {}", panel.title);
+        window::open(
+            WindowSpec::new(title, FloatingPanel::new(panel))
+                .size(560, 420)
+                .context("panel"),
+        );
     }
 
     fn run_context_action(&mut self, index: usize, id: &str) {
         match index {
             0 => self.close_panel(id),
+            3 => self.detach_panel(id),
             1 => {
                 // Close others in the same group.
                 let group_panels = self
@@ -1196,8 +1291,8 @@ impl DockArea {
                     }
                 }
             }
-            3 | 4 => {
-                let side = if index == 3 { Side::Right } else { Side::Bottom };
+            5 | 6 => {
+                let side = if index == 5 { Side::Right } else { Side::Bottom };
                 let Some(group) = self
                     .groups
                     .iter()
@@ -1221,9 +1316,215 @@ impl DockArea {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Detached (floating) panels
+// ---------------------------------------------------------------------------
+
+/// The root widget of a window holding a **detached** dock panel.
+///
+/// It owns the [`Panel`] outright — detaching *moves* the content rather than
+/// sharing it, which is what the id-tree/registry split buys us. Clicking
+/// **Dock** hands the panel back through the redock queue and closes the window;
+/// the [`DockArea`] absorbs it on its next layout.
+struct FloatingPanel {
+    panel: Option<Panel>,
+    font_size: f32,
+    header_h: f32,
+    dock_rect: Rect,
+    hovered_dock: bool,
+}
+
+impl FloatingPanel {
+    fn new(panel: Panel) -> Self {
+        FloatingPanel {
+            panel: Some(panel),
+            font_size: 13.0,
+            header_h: 30.0,
+            dock_rect: Rect::ZERO,
+            hovered_dock: false,
+        }
+    }
+
+    fn content_rect(&self, bounds: Rect) -> Rect {
+        Rect::from_xywh(
+            bounds.left(),
+            bounds.top() + self.header_h,
+            bounds.width(),
+            (bounds.height() - self.header_h).max(0.0),
+        )
+    }
+}
+
+impl Widget for FloatingPanel {
+    fn layout(&mut self, cx: &mut LayoutCx<'_>, constraints: Constraints) -> Size {
+        // A "Dock Panel Back" command (palette / Ctrl+D) targets a window, not a
+        // widget, so the request is consumed here.
+        if take_redock_request(cx.window) {
+            if let Some(panel) = self.panel.take() {
+                queue_redock(panel);
+            }
+            if let Some(id) = cx.window {
+                window::close(id);
+            }
+        }
+
+        let s = crate::text::scale();
+        let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+        self.header_h = line_h + 12.0 * s;
+
+        let w = if constraints.max.width.is_finite() {
+            constraints.max.width
+        } else {
+            560.0
+        };
+        let h = if constraints.max.height.is_finite() {
+            constraints.max.height
+        } else {
+            420.0
+        };
+
+        let label_w = cx.fonts.measure("Dock", self.font_size, FontId::Ui).width;
+        let btn_w = label_w + 18.0 * s;
+        self.dock_rect = Rect::from_xywh(
+            w - btn_w - 8.0 * s,
+            (self.header_h - line_h - 6.0 * s) * 0.5,
+            btn_w,
+            line_h + 6.0 * s,
+        );
+
+        if let Some(panel) = self.panel.as_mut() {
+            panel.widget.layout(
+                cx,
+                Constraints::tight(Size::new(w, (h - self.header_h).max(0.0))),
+            );
+        }
+        constraints.constrain(Size::new(w, h))
+    }
+
+    fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene) {
+        let p = &cx.theme.palette;
+        let s = crate::text::scale();
+        let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+
+        let header = Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), self.header_h);
+        scene.rect(header, p.surface_variant);
+
+        let ty = header.top() + (header.height() - line_h) * 0.5;
+        let mut tx = header.left() + 10.0 * s;
+        if let Some(panel) = self.panel.as_ref() {
+            if let Some(icon) = panel.icon {
+                scene.text_font(
+                    Point::new(tx, ty),
+                    icon.ch().to_string(),
+                    self.font_size,
+                    p.text,
+                    icon.font_id(),
+                );
+                tx += cx
+                    .fonts
+                    .char_advance(icon.ch(), self.font_size, icon.font_id())
+                    + 6.0 * s;
+            }
+            scene.text(
+                Point::new(tx, ty),
+                panel.title.clone(),
+                self.font_size,
+                p.text,
+            );
+        }
+
+        // "Dock" button — the redock affordance.
+        let btn = super::absolute(bounds, self.dock_rect);
+        scene.push_rect(
+            RectShape::fill(btn, if self.hovered_dock { p.accent } else { p.surface })
+                .with_corner_radius(cx.theme.radius.sm)
+                .with_border(1.0, p.border),
+        );
+        let lw = cx.fonts.measure("Dock", self.font_size, FontId::Ui).width;
+        scene.text(
+            Point::new(
+                btn.center().x - lw * 0.5,
+                btn.top() + (btn.height() - line_h) * 0.5,
+            ),
+            "Dock",
+            self.font_size,
+            if self.hovered_dock { p.on_accent } else { p.text },
+        );
+
+        let content = self.content_rect(bounds);
+        if let Some(panel) = self.panel.as_mut() {
+            scene.push_clip(content);
+            panel.widget.paint(cx, content, scene);
+            scene.pop_clip();
+        }
+    }
+
+    fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        let btn = super::absolute(bounds, self.dock_rect);
+        match event {
+            InputEvent::PointerMoved { pos } => self.hovered_dock = btn.contains(*pos),
+            InputEvent::PointerLeft => self.hovered_dock = false,
+            InputEvent::PointerPressed {
+                pos,
+                button: PointerButton::Primary,
+            } if btn.contains(*pos) => {
+                // Hand the panel back and close this window; the DockArea picks
+                // it up on its next layout.
+                if let Some(panel) = self.panel.take() {
+                    queue_redock(panel);
+                }
+                if let Some(id) = cx.window {
+                    window::close(id);
+                }
+                cx.consume();
+                return;
+            }
+            _ => {}
+        }
+
+        let content = self.content_rect(bounds);
+        if let Some(panel) = self.panel.as_mut() {
+            panel.widget.event(cx, content, event);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Null;
+    impl Widget for Null {
+        fn layout(&mut self, _cx: &mut LayoutCx<'_>, c: Constraints) -> Size {
+            c.constrain(Size::ZERO)
+        }
+        fn paint(&mut self, _cx: &mut PaintCx<'_>, _b: Rect, _s: &mut Scene) {}
+    }
+
+    /// Detaching MOVES the panel out (id tree + registry), and redocking hands
+    /// the same owned content back. This is the whole point of separating layout
+    /// from content: no widget is ever re-parented behind anyone's back.
+    #[test]
+    fn detaching_takes_ownership_and_redock_returns_it() {
+        let mut dock = DockArea::new(DockNode::split(
+            DockAxis::Horizontal,
+            vec![DockNode::tabs(["a"]), DockNode::tabs(["b"])],
+        ))
+        .panel(Panel::new("a", "A", Null))
+        .panel(Panel::new("b", "B", Null));
+
+        let taken = dock.take_panel("a").expect("panel a should be detachable");
+        assert_eq!(taken.id, "a");
+        assert!(!dock.panels.contains_key("a"), "content left the registry");
+        // Its group is now empty -> pruned; the split collapses to the survivor.
+        assert_eq!(ids(&dock.root), vec!["b"]);
+
+        // Redocking hands the same owned panel back.
+        queue_redock(taken);
+        let returned = take_redock();
+        assert_eq!(returned.len(), 1);
+        assert_eq!(returned[0].id, "a");
+    }
 
     fn ids(node: &DockNode) -> Vec<String> {
         let mut out = Vec::new();

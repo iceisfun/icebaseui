@@ -35,6 +35,12 @@ pub struct CommandMeta {
     pub color: Option<Color>,
     /// Human-readable shortcut hint (e.g. `"Ctrl+S"`), shown in menus/palette.
     pub shortcut: Option<String>,
+    /// Optional **context**. `None` = global (available everywhere). Otherwise
+    /// the command is only listed in the palette — and its shortcut only fires —
+    /// while a window declaring that context is focused. This is how a detached
+    /// panel window offers its own commands while the main window offers all of
+    /// them; see [`WindowSpec::context`](crate::window::WindowSpec::context).
+    pub context: Option<String>,
 }
 
 impl CommandMeta {
@@ -46,7 +52,14 @@ impl CommandMeta {
             icon: None,
             color: None,
             shortcut: None,
+            context: None,
         }
+    }
+
+    /// Restrict this command to a window context (see [`CommandMeta::context`]).
+    pub fn context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
+        self
     }
 
     pub fn category(mut self, category: impl Into<String>) -> Self {
@@ -86,6 +99,26 @@ struct Registry {
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
+    /// Context of the focused window; scopes which commands are visible/bound.
+    static ACTIVE_CONTEXT: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Set the active command context (the App does this when window focus changes).
+pub fn set_active_context(context: Option<String>) {
+    ACTIVE_CONTEXT.with(|c| *c.borrow_mut() = context);
+}
+
+/// The active command context.
+pub fn active_context() -> Option<String> {
+    ACTIVE_CONTEXT.with(|c| c.borrow().clone())
+}
+
+/// Whether a command with this context is reachable right now.
+fn in_scope(context: &Option<String>) -> bool {
+    match context {
+        None => true, // global
+        Some(c) => active_context().as_deref() == Some(c.as_str()),
+    }
 }
 
 /// Register a command and its handler. Re-registering the same id replaces it.
@@ -124,6 +157,10 @@ pub fn run(id: &str) {
                 e.handler = Some(handler);
             }
         });
+        // A command may change anything — including global state that isn't a
+        // signal (text scale, theme, dock layout). Repaint every window rather
+        // than only the one that happened to dispatch it.
+        crate::window::mark_dirty();
     }
 }
 
@@ -140,6 +177,7 @@ pub fn search(query: &str) -> Vec<CommandMeta> {
         r.borrow()
             .entries
             .iter()
+            .filter(|e| in_scope(&e.meta.context))
             .filter_map(|e| {
                 if q.is_empty() {
                     return Some((0, e.meta.clone()));
@@ -172,9 +210,15 @@ pub fn bind_shortcut(chord: &str, id: &str) {
     });
 }
 
-/// The command id bound to `chord`, if any.
+/// The command id bound to `chord`, if any **and reachable in the active
+/// context** — so a panel-scoped shortcut doesn't fire in the main window.
 pub fn command_for_chord(chord: &str) -> Option<String> {
-    REGISTRY.with(|r| r.borrow().shortcuts.get(&normalize_chord(chord)).cloned())
+    REGISTRY.with(|r| {
+        let r = r.borrow();
+        let id = r.shortcuts.get(&normalize_chord(chord))?;
+        let entry = r.entries.iter().find(|e| &e.meta.id == id)?;
+        in_scope(&entry.meta.context).then(|| id.clone())
+    })
 }
 
 /// Canonicalize a chord string for lookup: sorted modifier order, lower-cased.
@@ -479,6 +523,37 @@ mod tests {
         assert!(hits.iter().any(|m| m.id == "test.inc"));
         let none = search("zzz-nope-zzz");
         assert!(!none.iter().any(|m| m.id == "test.inc"));
+    }
+
+    /// A detached panel window shows its own commands; the main window does not.
+    #[test]
+    fn context_scopes_palette_visibility_and_shortcuts() {
+        register(CommandMeta::new("ctx.global", "Global Thing").shortcut("Ctrl+F9"), || {});
+        register(
+            CommandMeta::new("ctx.panel", "Panel Thing")
+                .context("panel")
+                .shortcut("Ctrl+F10"),
+            || {},
+        );
+
+        // No context active (e.g. the main window): only global commands.
+        set_active_context(None);
+        let hits = search("Thing");
+        assert!(hits.iter().any(|m| m.id == "ctx.global"));
+        assert!(
+            !hits.iter().any(|m| m.id == "ctx.panel"),
+            "panel-scoped command must not leak into the global palette"
+        );
+        assert_eq!(command_for_chord("ctrl+f10"), None, "its shortcut must not fire either");
+
+        // Inside a panel window: global commands PLUS the panel-scoped ones.
+        set_active_context(Some("panel".into()));
+        let hits = search("Thing");
+        assert!(hits.iter().any(|m| m.id == "ctx.panel"));
+        assert!(hits.iter().any(|m| m.id == "ctx.global"));
+        assert_eq!(command_for_chord("ctrl+f10").as_deref(), Some("ctx.panel"));
+
+        set_active_context(None);
     }
 
     #[test]
