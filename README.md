@@ -33,15 +33,17 @@ baseui/
 │       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
-│       ├── widget       # Widget trait + Label, Button, Column, Row,
-│       │                #   Checkbox, Slider, DragValue, HexView
+│       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
+│       │                #   Slider, DragValue, HexView, ScrollArea, TreeView,
+│       │                #   PropertyView
 │       └── app          # App shell + winit event loop + input routing
 ├── docs/
 │   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
 └── examples/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)
     ├── counter/         # widget + reactive-signal demo
-    └── widgets/         # control gallery starring HexView (colored bytes)
+    ├── widgets/         # control gallery starring HexView (colored bytes)
+    └── inspector/       # TreeView + PropertyView (Blender-style)
 ```
 
 Large optional systems will live in their own crates: `baseui-dock`,
@@ -80,8 +82,10 @@ cargo clippy --workspace
       **HexView** (monospace grid, per-byte class coloring, hover highlight,
       wheel scroll, reactive ASCII toggle). Remaining: TextBox/ComboBox (need
       keyboard focus) and Grid/Scroll containers.
-- [ ] **M5 — Flagship widgets:** TreeView and PropertyView (Blender-Outliner /
-      Properties-editor grade).
+- [x] **M5 — Flagship widgets:** `ScrollArea`, `TreeView` (expand/collapse,
+      colored type icons, selection, hover), and `PropertyView` (collapsible
+      groups with colored section icons; rows embed real editor widgets). See
+      the `inspector` example (Blender Outliner + Properties layout).
 - [ ] **M6 — App frame:** menu bar, toolbar, panels, status bar, tabs.
 - [ ] **M7 — Systems:** command system, event bus, shortcut manager, persistence.
 - [ ] **M8 — Extensibility:** plugin registration, icon packs, optional docking

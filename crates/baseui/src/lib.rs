@@ -36,7 +36,10 @@ pub mod widget;
 
 pub use app::{App, Frame, WindowConfig};
 pub use theme::Theme;
-pub use widget::{Button, Checkbox, Column, DragValue, HexView, Label, Row, Slider, Widget};
+pub use widget::{
+    Button, Checkbox, Column, DragValue, HexView, Label, PropGroup, PropertyView, Row, ScrollArea,
+    Slider, TreeNode, TreeView, Widget,
+};
 
 // Re-export the dependency-free core so downstream code has one import root.
 pub use baseui_core as core;

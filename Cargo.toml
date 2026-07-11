@@ -6,6 +6,7 @@ members = [
     "examples/hello",
     "examples/counter",
     "examples/widgets",
+    "examples/inspector",
 ]
 
 [workspace.package]

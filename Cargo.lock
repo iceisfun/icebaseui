@@ -806,6 +806,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspector"
+version = "0.0.1"
+dependencies = [
+ "baseui",
+ "env_logger",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

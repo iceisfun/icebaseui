@@ -24,16 +24,22 @@ mod checkbox;
 mod drag_value;
 mod hex_view;
 mod label;
+mod property;
+mod scroll;
 mod slider;
 mod stack;
+mod tree;
 
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use drag_value::DragValue;
 pub use hex_view::HexView;
 pub use label::Label;
+pub use property::{PropGroup, PropertyView};
+pub use scroll::ScrollArea;
 pub use slider::Slider;
 pub use stack::{Column, Row};
+pub use tree::{TreeNode, TreeView};
 
 use baseui_core::Size;
 use baseui_core::paint::Scene;
