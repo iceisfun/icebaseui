@@ -50,7 +50,7 @@ pub use slider::Slider;
 pub use split::Split;
 pub use stack::{Column, Row};
 pub use statusbar::{StatusBar, StatusItem};
-pub use tabs::TabView;
+pub use tabs::{TabStrip, TabView};
 pub use textbox::TextBox;
 pub use toolbar::Toolbar;
 pub use tree::{TreeNode, TreeView};

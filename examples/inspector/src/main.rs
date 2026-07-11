@@ -258,9 +258,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .row("Roughness", Slider::new(rough).range(0.0, 1.0).width(180.0)),
         ),
     );
+    // Extra panes so the vertical rail has something to switch between.
+    let (subdiv, bevel) = (sig(2.0), sig(0.1));
+    let modifiers_tab = ScrollArea::new(
+        PropertyView::new()
+            .group(
+                PropGroup::new("Subdivision")
+                    .icon_color(blue)
+                    .row("Levels", Slider::new(subdiv).range(0.0, 6.0).width(180.0))
+                    .row("Render", DragValue::new(subdiv).range(0.0, 6.0).speed(0.05).decimals(0)),
+            )
+            .group(
+                PropGroup::new("Bevel")
+                    .icon_color(purple)
+                    .row("Amount", DragValue::new(bevel).range(0.0, 1.0).speed(0.005).decimals(3)),
+            ),
+    );
+    let (gravity, samples) = (sig(9.81), sig(64.0));
+    let world_tab = ScrollArea::new(
+        PropertyView::new().group(
+            PropGroup::new("World")
+                .icon_color(green)
+                .row("Gravity", DragValue::new(gravity).range(0.0, 30.0).speed(0.05).decimals(2))
+                .row("Strength", Slider::new(sig(1.0)).range(0.0, 4.0).width(180.0)),
+        ),
+    );
+    let render_tab = ScrollArea::new(
+        PropertyView::new().group(
+            PropGroup::new("Sampling")
+                .icon_color(orange)
+                .row("Samples", DragValue::new(samples).range(1.0, 4096.0).speed(2.0).decimals(0))
+                .row("Denoise", baseui::widget::Checkbox::new(
+                    baseui::core::create_signal(true),
+                    "Enabled",
+                )),
+        ),
+    );
+
+    // Blender-style: a vertical icon rail on the left picks which pane shows.
     let inspector = TabView::new()
-        .tab_icon(glyphs::GEAR, "Object", object_tab)
-        .tab("Material", material_tab)
+        .vertical()
+        .tab_icon(gis::POLYGON, "Object", object_tab)
+        .tab_icon(glyphs::GEAR, "Modifiers", modifiers_tab)
+        .tab_icon(glyphs::CIRCLE, "Material", material_tab)
+        .tab_icon(gis::GLOBE, "World", world_tab)
+        .tab_icon(gis::MAP, "Render", render_tab)
         .persist("tabs.inspector");
 
     // --- Outliner pane: search box above the scrolling tree ---------------

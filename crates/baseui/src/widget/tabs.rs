@@ -1,9 +1,12 @@
 //! [`TabView`] — a tab strip that swaps which child widget is shown.
 //!
-//! Each tab owns a content [`Widget`]; only the selected tab's content is laid
-//! out, painted, and sent events. Tabs may carry a leading glyph [`Icon`]
-//! (Blender's Properties editor uses icon tabs). Place inside a
-//! [`Split`](super::Split) pane or any bounded region.
+//! The strip can sit **on top** ([`TabStrip::Top`], horizontal, icon + text) or
+//! **down the left edge** ([`TabStrip::Left`], a vertical icon-only rail — the
+//! layout Blender's Properties editor uses, where each icon selects which
+//! property pane is shown).
+//!
+//! Only the selected tab's content is laid out, painted, and sent events, so
+//! keeping many panes around is cheap.
 
 use baseui_core::paint::{RectShape, Scene};
 use baseui_core::{Point, Rect, Size};
@@ -14,6 +17,19 @@ use crate::icon::Icon;
 use crate::layout::Constraints;
 use crate::text::FontId;
 
+/// Where the tab strip sits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TabStrip {
+    /// Horizontal strip across the top; tabs show icon + title.
+    Top,
+    /// Vertical icon rail down the left edge; tabs show their icon only.
+    Left,
+}
+
+/// Width of the vertical icon rail, and the height of one of its tabs.
+const RAIL_W: f32 = 40.0;
+const RAIL_ITEM_H: f32 = 38.0;
+
 struct Tab {
     title: String,
     icon: Option<Icon>,
@@ -21,14 +37,16 @@ struct Tab {
     header_rect: Rect,
 }
 
-/// A tabbed container. The selected tab's content fills the area below the tab
-/// strip.
+/// A tabbed container. The selected tab's content fills the area beside the strip.
 pub struct TabView {
     tabs: Vec<Tab>,
     selected: usize,
     hovered: Option<usize>,
     font_size: f32,
-    header_h: f32,
+    icon_size: f32,
+    strip: TabStrip,
+    /// Header height (`Top`) or rail width (`Left`).
+    strip_size: f32,
     content_rect: Rect,
     persist_key: Option<String>,
 }
@@ -40,15 +58,24 @@ impl TabView {
             selected: 0,
             hovered: None,
             font_size: 13.0,
-            header_h: 30.0,
+            icon_size: 17.0,
+            strip: TabStrip::Top,
+            strip_size: 30.0,
             content_rect: Rect::ZERO,
             persist_key: None,
         }
     }
 
-    /// Persist the selected tab index under `key` between runs.
-    pub fn persist(mut self, key: impl Into<String>) -> Self {
-        self.persist_key = Some(key.into());
+    /// Put the tabs in a vertical icon rail down the left edge (Blender-style).
+    /// Tabs should have icons; a tab without one falls back to its first letter.
+    pub fn vertical(mut self) -> Self {
+        self.strip = TabStrip::Left;
+        self
+    }
+
+    /// Choose where the tab strip sits.
+    pub fn strip(mut self, strip: TabStrip) -> Self {
+        self.strip = strip;
         self
     }
 
@@ -63,7 +90,7 @@ impl TabView {
         self
     }
 
-    /// Add a tab with a leading icon.
+    /// Add a tab with an icon (shown alone in a vertical rail).
     pub fn tab_icon(
         mut self,
         icon: Icon,
@@ -82,6 +109,12 @@ impl TabView {
     /// Select an initial tab index.
     pub fn selected(mut self, index: usize) -> Self {
         self.selected = index;
+        self
+    }
+
+    /// Persist the selected tab index under `key` between runs.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
         self
     }
 }
@@ -104,26 +137,37 @@ impl Widget for TabView {
         } else {
             400.0
         };
-        let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
-        self.header_h = line_h + cx.theme.spacing.md;
-        let pad = cx.theme.spacing.md;
 
-        let mut x = 0.0;
-        for tab in &mut self.tabs {
-            let tw = {
-                // borrow split: measure without &mut self
-                let mut w = cx.fonts.measure(&tab.title, self.font_size, FontId::Ui).width;
-                if let Some(icon) = tab.icon {
-                    w += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
-                        + pad * 0.5;
+        match self.strip {
+            TabStrip::Top => {
+                let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+                self.strip_size = line_h + cx.theme.spacing.md;
+                let pad = cx.theme.spacing.md;
+                let mut x = 0.0;
+                for tab in &mut self.tabs {
+                    let mut tw = cx.fonts.measure(&tab.title, self.font_size, FontId::Ui).width;
+                    if let Some(icon) = tab.icon {
+                        tw += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                            + pad * 0.5;
+                    }
+                    tw += pad * 2.0;
+                    tab.header_rect = Rect::from_xywh(x, 0.0, tw, self.strip_size);
+                    x += tw;
                 }
-                w + pad * 2.0
-            };
-            tab.header_rect = Rect::from_xywh(x, 0.0, tw, self.header_h);
-            x += tw;
+                self.content_rect =
+                    Rect::from_xywh(0.0, self.strip_size, w, (h - self.strip_size).max(0.0));
+            }
+            TabStrip::Left => {
+                self.strip_size = RAIL_W;
+                for (i, tab) in self.tabs.iter_mut().enumerate() {
+                    tab.header_rect =
+                        Rect::from_xywh(0.0, i as f32 * RAIL_ITEM_H, RAIL_W, RAIL_ITEM_H);
+                }
+                self.content_rect =
+                    Rect::from_xywh(self.strip_size, 0.0, (w - self.strip_size).max(0.0), h);
+            }
         }
 
-        self.content_rect = Rect::from_xywh(0.0, self.header_h, w, (h - self.header_h).max(0.0));
         if let Some(tab) = self.tabs.get_mut(self.selected) {
             tab.content
                 .layout(cx, Constraints::loose(self.content_rect.size));
@@ -135,41 +179,86 @@ impl Widget for TabView {
     fn paint(&mut self, cx: &mut PaintCx<'_>, bounds: Rect, scene: &mut Scene) {
         let p = &cx.theme.palette;
 
-        // Strip background + bottom divider.
-        let strip = Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), self.header_h);
-        scene.rect(strip, p.surface_variant);
+        // Strip background.
+        let strip_rect = match self.strip {
+            TabStrip::Top => {
+                Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), self.strip_size)
+            }
+            TabStrip::Left => {
+                Rect::from_xywh(bounds.left(), bounds.top(), self.strip_size, bounds.height())
+            }
+        };
+        scene.rect(strip_rect, p.surface_variant);
 
         for (i, tab) in self.tabs.iter().enumerate() {
             let hr = absolute(bounds, tab.header_rect);
             let selected = i == self.selected;
 
-            if selected {
-                scene.push_rect(RectShape::fill(hr, p.surface));
-                // Accent underline.
-                scene.rect(
-                    Rect::from_xywh(hr.left(), hr.bottom() - 2.0, hr.width(), 2.0),
-                    p.accent,
-                );
-            } else if self.hovered == Some(i) {
-                scene.push_rect(RectShape::fill(hr, p.hover));
-            }
+            match self.strip {
+                TabStrip::Top => {
+                    if selected {
+                        scene.push_rect(RectShape::fill(hr, p.surface));
+                        scene.rect(
+                            Rect::from_xywh(hr.left(), hr.bottom() - 2.0, hr.width(), 2.0),
+                            p.accent,
+                        );
+                    } else if self.hovered == Some(i) {
+                        scene.push_rect(RectShape::fill(hr, p.hover));
+                    }
 
-            let color = if selected { p.text } else { p.text_muted };
-            let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
-            let ty = hr.top() + (hr.height() - line_h) * 0.5;
-            let mut tx = hr.left() + cx.theme.spacing.md;
-            if let Some(icon) = tab.icon {
-                scene.text_font(
-                    Point::new(tx, ty),
-                    icon.ch().to_string(),
-                    self.font_size,
-                    color,
-                    icon.font_id(),
-                );
-                tx += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
-                    + cx.theme.spacing.sm;
+                    let color = if selected { p.text } else { p.text_muted };
+                    let line_h = cx.fonts.line_height(self.font_size, FontId::Ui);
+                    let ty = hr.top() + (hr.height() - line_h) * 0.5;
+                    let mut tx = hr.left() + cx.theme.spacing.md;
+                    if let Some(icon) = tab.icon {
+                        scene.text_font(
+                            Point::new(tx, ty),
+                            icon.ch().to_string(),
+                            self.font_size,
+                            color,
+                            icon.font_id(),
+                        );
+                        tx += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id())
+                            + cx.theme.spacing.sm;
+                    }
+                    scene.text(Point::new(tx, ty), tab.title.clone(), self.font_size, color);
+                }
+                TabStrip::Left => {
+                    // Selected tab reads as continuous with the content pane, with
+                    // an accent bar on its outer edge.
+                    if selected {
+                        scene.push_rect(RectShape::fill(hr, p.surface));
+                        scene.rect(
+                            Rect::from_xywh(hr.left(), hr.top(), 2.0, hr.height()),
+                            p.accent,
+                        );
+                    } else if self.hovered == Some(i) {
+                        scene.push_rect(RectShape::fill(hr, p.hover));
+                    }
+
+                    // Icon-only (fall back to the title's first letter).
+                    let (ch, font) = match tab.icon {
+                        Some(icon) => (icon.ch(), icon.font_id()),
+                        None => (
+                            tab.title.chars().next().unwrap_or('?'),
+                            FontId::Ui,
+                        ),
+                    };
+                    let color = if selected { p.text } else { p.text_muted };
+                    let adv = cx.fonts.char_advance(ch, self.icon_size, font);
+                    let line_h = cx.fonts.line_height(self.icon_size, font);
+                    scene.text_font(
+                        Point::new(
+                            hr.center().x - adv * 0.5,
+                            hr.center().y - line_h * 0.5,
+                        ),
+                        ch.to_string(),
+                        self.icon_size,
+                        color,
+                        font,
+                    );
+                }
             }
-            scene.text(Point::new(tx, ty), tab.title.clone(), self.font_size, color);
         }
 
         // Selected content.
@@ -200,6 +289,7 @@ impl Widget for TabView {
                     .position(|t| absolute(bounds, t.header_rect).contains(*pos))
                 {
                     self.selected = i;
+                    cx.consume();
                     return;
                 }
             }
