@@ -22,10 +22,11 @@ use baseui::icon::{gis, glyphs};
 use baseui::layout::Constraints;
 use baseui::paint::Scene;
 use baseui::widget::{
-    Column, ComboBox, DragValue, LayoutCx, Menu, MenuBar, PaintCx, PropGroup, PropertyView,
+    Column, ComboBox, DragValue, Label, LayoutCx, Menu, MenuBar, PaintCx, PropGroup, PropertyView,
     ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar, TreeNode, TreeView,
     Widget,
 };
+use baseui::window::{self, WindowSpec};
 use baseui::{App, Color, Icon, Point, Rect, Signal, Size};
 
 fn col(r: u8, g: u8, b: u8) -> Color {
@@ -217,6 +218,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     command::run("view.text.reset")
                 }),
         )
+        .menu(
+            Menu::new("Window")
+                .item_icon(glyphs::SQUARE, "Open Tool Window", || {
+                    command::run("window.tool")
+                }),
+        )
         .menu(Menu::new("Help").item_icon(glyphs::STAR, "Command Palette  (F1)", || {}));
 
     // --- Toolbar ----------------------------------------------------------
@@ -306,6 +313,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .persist("props.object"),
     );
     let (mr, mg, mb, rough) = (sig(0.8), sig(0.3), sig(0.2), sig(0.4));
+
+    // A floating tool window. Its sliders are bound to the SAME signals as the
+    // main window's Material tab, so dragging one repaints the other: windows
+    // share the GPU device, the theme, and the reactive runtime.
+    command::register(
+        CommandMeta::new("window.tool", "Open Tool Window")
+            .category("Window")
+            .icon(glyphs::SQUARE)
+            .color(blue)
+            .shortcut("Ctrl+T"),
+        move || {
+            window::open(
+                WindowSpec::new(
+                    "BaseUI — Tool Window",
+                    Column::new()
+                        .padding(baseui::Insets::all(14.0))
+                        .spacing(10.0)
+                        .child(Label::new("Detached tool window").size(17.0))
+                        .child(
+                            Label::new("Shares signals with the main window:")
+                                .color(col(0x9a, 0x9a, 0xa4)),
+                        )
+                        .child(
+                            Label::dynamic(move || {
+                                format!(
+                                    "R {:.2}   G {:.2}   B {:.2}",
+                                    mr.get(),
+                                    mg.get(),
+                                    mb.get()
+                                )
+                            })
+                            .size(16.0)
+                            .color(orange),
+                        )
+                        .child(Slider::new(mr).range(0.0, 1.0).width(260.0))
+                        .child(Slider::new(mg).range(0.0, 1.0).width(260.0))
+                        .child(Slider::new(mb).range(0.0, 1.0).width(260.0)),
+                )
+                .size(340, 260),
+            );
+        },
+    );
     let material_tab = ScrollArea::new(
         PropertyView::new().group(
             PropGroup::new("Surface")
@@ -402,6 +451,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fixed_range(40.0, 40.0, 40.0, toolbar)
         .flex(center)
         .fixed_range(26.0, 26.0, 26.0, status);
+
+    // Scripted-demo hook: queue the tool window before the loop starts. The
+    // request is drained once the event loop goes idle, after the main window
+    // (and the GPU context) exist.
+    if std::env::var_os("BASEUI_OPEN_TOOL").is_some() {
+        command::run("window.tool");
+    }
 
     App::new()
         .with_title("BaseUI — App Frame")

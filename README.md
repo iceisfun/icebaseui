@@ -33,7 +33,7 @@ baseui/
 │   └── baseui/          # the framework crate (winit + wgpu)
 │       ├── theme        # design tokens: palette, spacing, radius, type, motion
 │       ├── text         # fonts (UI + mono), measurement, global text scale
-│       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
+│       ├── render       # wgpu: shared GpuContext + per-window WindowRenderer
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
 │       ├── icon         # Icon type + glyph icons + embedded font-gis pack
@@ -42,6 +42,7 @@ baseui/
 │       ├── persist      # JSON UI-state store (layout persistence)
 │       ├── focus        # keyboard focus (thread-local)
 │       ├── clipboard    # system clipboard (text)
+│       ├── window       # multi-window: open/close request queue
 │       ├── popup        # popup modality (keyboard capture)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, TextBox, ComboBox, HexView,
@@ -51,6 +52,7 @@ baseui/
 ├── docs/
 │   ├── rich-text.md     # styled runs, hex editor, squiggle underlines
 │   ├── document-tabs.md # planned VS Code-style tabs for the content area
+│   ├── docking.md       # dock plan: id-tree design + phases (Phase 0 done)
 │   └── scripting.md     # Lua scope: composition/glue, NOT widget authoring
 └── examples/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)

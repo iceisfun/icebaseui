@@ -1,10 +1,21 @@
 //! The wgpu rendering backend.
 //!
-//! The renderer owns all long-lived GPU objects (instance, adapter, device,
-//! queue, surface) plus the [`QuadPipeline`] and the [`TextRenderer`]. Each
-//! frame it walks a [`Scene`] display list, flattens it into a batch of
-//! [`QuadInstance`]s (resolving the nested clip stack and rasterizing any needed
-//! glyphs into the font atlas), and draws them in a single instanced pass.
+//! Split in two so that a single GPU device can drive **many windows** (floating
+//! panels, tool windows, detached dock tabs):
+//!
+//! - [`GpuContext`] — shared: instance, adapter, device, queue, the quad
+//!   pipeline, and the glyph/icon atlas. One of these for the whole app.
+//! - [`WindowRenderer`] — per window: its surface, surface config, physical size,
+//!   and DPI scale.
+//!
+//! Each frame, [`GpuContext::render`] walks a [`Scene`] for one window, flattens
+//! it into [`QuadInstance`]s (resolving the clip stack and rasterizing any new
+//! glyphs into the shared atlas), and draws them in a single instanced pass.
+//!
+//! Because the glyph cache keys on the *rasterized pixel size*
+//! (`size × text_scale × dpi_scale`), windows living on monitors with different
+//! DPI simply produce additional atlas entries — mixed-DPI multi-monitor works
+//! without any special handling.
 
 mod glyph;
 mod quad;
@@ -13,38 +24,91 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use baseui_core::paint::{Command, Primitive, RectShape, Scene};
-use baseui_core::{Color, Rect};
+use baseui_core::{Color, Rect, Size};
 use winit::window::Window;
 
 use crate::text::Fonts;
 use glyph::GlyphRenderer;
 use quad::{MODE_SHAPE, QuadInstance, QuadPipeline};
 
-/// Owns the GPU device, the window surface, and the drawing pipelines.
-pub struct Renderer {
-    surface: wgpu::Surface<'static>,
+/// GPU state shared by every window: device, queue, pipeline, and glyph atlas.
+pub struct GpuContext {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
-    /// Logical -> physical pixel scale factor.
-    scale: f32,
-
+    /// Surface format the pipeline was built for; all windows use it.
+    format: wgpu::TextureFormat,
     quad: QuadPipeline,
     glyphs: GlyphRenderer,
-
     /// Reused per-frame instance scratch buffer.
     instances: Vec<QuadInstance>,
 }
 
-impl Renderer {
-    /// Create a renderer for `window`, sharing the already-loaded [`Fonts`].
-    /// Blocks on GPU adapter/device acquisition.
-    pub fn new(window: Arc<Window>, fonts: Rc<Fonts>) -> Result<Self, RendererError> {
+/// Per-window rendering state: its surface and geometry.
+pub struct WindowRenderer {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    /// Physical pixels.
+    size: winit::dpi::PhysicalSize<u32>,
+    /// Logical -> physical scale factor for *this* window (its monitor's DPI).
+    scale: f32,
+}
+
+impl WindowRenderer {
+    /// The surface size in physical pixels.
+    pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
+        self.size
+    }
+
+    /// This window's logical->physical scale factor.
+    pub fn scale_factor(&self) -> f32 {
+        self.scale
+    }
+
+    /// Update the scale factor (window moved to a different-DPI monitor).
+    pub fn set_scale_factor(&mut self, scale: f64) {
+        self.scale = scale as f32;
+    }
+
+    /// The surface size in logical pixels.
+    pub fn logical_size(&self) -> Size {
+        Size::new(
+            self.size.width as f32 / self.scale,
+            self.size.height as f32 / self.scale,
+        )
+    }
+
+    /// Reconfigure after a resize. Zero dimensions are ignored (minimized).
+    pub fn resize(&mut self, gpu: &GpuContext, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width == 0 || new_size.height == 0 {
+            return;
+        }
+        self.size = new_size;
+        self.config.width = new_size.width;
+        self.config.height = new_size.height;
+        self.surface.configure(&gpu.device, &self.config);
+    }
+
+    fn reconfigure(&mut self, device: &wgpu::Device) {
+        self.surface.configure(device, &self.config);
+    }
+}
+
+impl GpuContext {
+    /// Create the shared GPU context together with the renderer for the first
+    /// window. Blocks on adapter/device acquisition.
+    pub fn new(
+        window: Arc<Window>,
+        fonts: Rc<Fonts>,
+    ) -> Result<(GpuContext, WindowRenderer), RendererError> {
         pollster::block_on(Self::new_async(window, fonts))
     }
 
-    async fn new_async(window: Arc<Window>, fonts: Rc<Fonts>) -> Result<Self, RendererError> {
+    async fn new_async(
+        window: Arc<Window>,
+        fonts: Rc<Fonts>,
+    ) -> Result<(GpuContext, WindowRenderer), RendererError> {
         let mut size = window.inner_size();
         size.width = size.width.max(1);
         size.height = size.height.max(1);
@@ -87,85 +151,76 @@ impl Renderer {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
+        let config = surface_config(format, size, &caps);
         surface.configure(&device, &config);
 
         let glyphs = GlyphRenderer::new(&device, fonts);
         let quad = QuadPipeline::new(&device, format, glyphs.atlas_view(), glyphs.atlas_sampler());
 
-        Ok(Renderer {
-            surface,
+        let gpu = GpuContext {
+            instance,
+            adapter,
             device,
             queue,
-            config,
-            size,
-            scale,
+            format,
             quad,
             glyphs,
             instances: Vec::new(),
+        };
+        let window_renderer = WindowRenderer {
+            surface,
+            config,
+            size,
+            scale,
+        };
+        Ok((gpu, window_renderer))
+    }
+
+    /// Create a renderer for an **additional** window on the same device — the
+    /// mechanism behind floating panels and detached dock tabs.
+    pub fn add_window(&self, window: Arc<Window>) -> Result<WindowRenderer, RendererError> {
+        let mut size = window.inner_size();
+        size.width = size.width.max(1);
+        size.height = size.height.max(1);
+        let scale = window.scale_factor() as f32;
+
+        let surface = self
+            .instance
+            .create_surface(window.clone())
+            .map_err(|e| RendererError::Surface(e.to_string()))?;
+
+        let caps = surface.get_capabilities(&self.adapter);
+        if !caps.formats.contains(&self.format) {
+            // The pipeline is built for one format; a surface that cannot offer
+            // it would render incorrectly.
+            log::warn!(
+                "new window does not support the pipeline surface format {:?}; supported: {:?}",
+                self.format,
+                caps.formats
+            );
+        }
+
+        let config = surface_config(self.format, size, &caps);
+        surface.configure(&self.device, &config);
+
+        Ok(WindowRenderer {
+            surface,
+            config,
+            size,
+            scale,
         })
     }
 
-    /// The current surface size in physical pixels.
-    pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
-        self.size
-    }
-
-    /// The current logical->physical scale factor.
-    pub fn scale_factor(&self) -> f32 {
-        self.scale
-    }
-
-    /// Update the logical->physical scale factor (window moved to another
-    /// monitor / DPI changed).
-    pub fn set_scale_factor(&mut self, scale: f64) {
-        self.scale = scale as f32;
-    }
-
-    /// Reconfigure the surface after a resize. Zero dimensions are ignored.
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width == 0 || new_size.height == 0 {
-            return;
-        }
-        self.size = new_size;
-        self.config.width = new_size.width;
-        self.config.height = new_size.height;
-        self.surface.configure(&self.device, &self.config);
-    }
-
-    fn reconfigure(&mut self) {
-        self.surface.configure(&self.device, &self.config);
-    }
-
-    /// The surface size in logical pixels.
-    pub fn logical_size(&self) -> baseui_core::Size {
-        baseui_core::Size::new(
-            self.size.width as f32 / self.scale,
-            self.size.height as f32 / self.scale,
-        )
-    }
-
-    /// Flatten `scene` into `self.instances`, resolving the clip stack and
-    /// rasterizing glyphs into the atlas as needed.
-    fn build_instances(&mut self, scene: &Scene) {
+    /// Flatten `scene` into instances for `window` (base layer, then the overlay
+    /// layer on top; each layer gets its own clip stack so popups escape clips).
+    fn build_instances(&mut self, window: &WindowRenderer, scene: &Scene) {
         self.instances.clear();
-        // Base layer first, then the overlay layer on top; each layer has its
-        // own clip stack so popups escape the clips of the base tree.
-        self.flatten_commands(scene.commands());
-        self.flatten_commands(scene.overlay());
+        self.flatten_commands(window, scene.commands());
+        self.flatten_commands(window, scene.overlay());
     }
 
-    fn flatten_commands(&mut self, commands: &[Command]) {
-        let logical = self.logical_size();
+    fn flatten_commands(&mut self, window: &WindowRenderer, commands: &[Command]) {
+        let logical = window.logical_size();
         let root_clip = Rect::from_xywh(0.0, 0.0, logical.width, logical.height);
         let mut clip_stack: Vec<Rect> = vec![root_clip];
 
@@ -189,14 +244,13 @@ impl Renderer {
                         Primitive::Text(shape) => {
                             // Split the borrow: the glyph renderer needs &mut
                             // atlas state and pushes into the instance buffer.
-                            let Renderer {
+                            let GpuContext {
                                 glyphs,
                                 instances,
                                 queue,
-                                scale,
                                 ..
                             } = self;
-                            glyphs.push_text(queue, *scale, shape, clip, instances);
+                            glyphs.push_text(queue, window.scale, shape, clip, instances);
                         }
                     }
                 }
@@ -204,21 +258,28 @@ impl Renderer {
         }
     }
 
-    /// Render one frame from `scene`, clearing to `clear` first.
-    pub fn render(&mut self, scene: &Scene, clear: Color) -> Result<(), RendererError> {
-        self.build_instances(scene);
+    /// Render one frame of `scene` into `window`, clearing to `clear` first.
+    ///
+    /// Windows are rendered one at a time, each with its own submit, so the
+    /// shared instance buffer is safe: transfers and draws execute in submission
+    /// order.
+    pub fn render(
+        &mut self,
+        window: &mut WindowRenderer,
+        scene: &Scene,
+        clear: Color,
+    ) -> Result<(), RendererError> {
+        self.build_instances(window, scene);
 
-        let screen = [self.size.width as f32, self.size.height as f32];
-        // Take the scratch buffer out so we can borrow the pipeline mutably
-        // without aliasing `self.instances`.
+        let screen = [window.size.width as f32, window.size.height as f32];
         let instances = std::mem::take(&mut self.instances);
         self.quad
-            .prepare(&self.device, &self.queue, screen, self.scale, &instances);
+            .prepare(&self.device, &self.queue, screen, window.scale, &instances);
 
-        let frame = match self.surface.get_current_texture() {
+        let frame = match window.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-                self.reconfigure();
+                window.reconfigure(&self.device);
                 self.instances = instances;
                 return Ok(());
             }
@@ -267,9 +328,25 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
 
-        // Return the scratch buffer for reuse next frame.
         self.instances = instances;
         Ok(())
+    }
+}
+
+fn surface_config(
+    format: wgpu::TextureFormat,
+    size: winit::dpi::PhysicalSize<u32>,
+    caps: &wgpu::SurfaceCapabilities,
+) -> wgpu::SurfaceConfiguration {
+    wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        width: size.width,
+        height: size.height,
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: caps.alpha_modes[0],
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
     }
 }
 

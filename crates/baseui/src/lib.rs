@@ -40,6 +40,7 @@ pub mod render;
 pub mod text;
 pub mod theme;
 pub mod widget;
+pub mod window;
 
 pub use app::{App, Frame, WindowConfig};
 pub use icon::Icon;

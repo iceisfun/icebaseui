@@ -1,16 +1,15 @@
-//! The application shell: window creation, the winit event loop, and driving
+//! The application shell: window management, the winit event loop, and driving
 //! the retained widget tree.
 //!
-//! [`App`] gets a themed window on screen and, each frame, runs the widget
-//! tree's layout → paint passes into a [`Scene`], then renders it. Raw winit
-//! input is normalized into [`InputEvent`]s (logical coordinates) and routed to
-//! the tree. Signal writes from event handlers schedule repaints through the
-//! reactive change hook registered here.
+//! [`App`] drives **any number of windows** from one GPU device and one event
+//! loop. Each window owns its own root widget, [`Scene`], and pointer state;
+//! they share the [`GpuContext`], the glyph atlas, the theme, the command
+//! registry, and the reactive runtime. A signal write repaints every window.
 //!
-//! Two ways to describe UI are supported:
-//! - [`App::with_root`] — a retained [`Widget`] tree (the normal path).
-//! - [`App::on_frame`] — a raw per-frame [`Scene`] callback (handy for custom
-//!   painting / demos before a widget exists for something).
+//! Secondary windows are opened by queueing a [`WindowSpec`](crate::window::WindowSpec)
+//! with [`window::open`](crate::window::open) — from a command handler, a button,
+//! or (later) a dock tab tear-off. The queue is drained when the event loop goes
+//! idle, which is the only place the `ActiveEventLoop` is available.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -26,10 +25,11 @@ use winit::window::{Window, WindowId};
 
 use crate::event::{InputEvent, Key, Modifiers, PointerButton};
 use crate::layout::Constraints;
-use crate::render::Renderer;
+use crate::render::{GpuContext, WindowRenderer};
 use crate::text::Fonts;
 use crate::theme::Theme;
 use crate::widget::{EventCx, LayoutCx, PaintCx, Widget};
+use crate::window;
 
 /// Configuration for the main application window.
 #[derive(Clone, Debug)]
@@ -49,7 +49,7 @@ impl Default for WindowConfig {
     }
 }
 
-/// Per-frame context passed to a raw [`App::on_frame`] callback.
+/// Per-frame context passed to a raw [`App::on_frame`] callback (main window).
 pub struct Frame<'a> {
     /// The drawable surface size in logical pixels.
     pub size: Size,
@@ -59,10 +59,15 @@ pub struct Frame<'a> {
 
 type UiFn = Box<dyn FnMut(&mut Scene, &Frame<'_>)>;
 
-/// Live per-window state: window handle and its renderer.
+/// One live window: its handle, renderer, root widget, scene, and pointer.
 struct WindowState {
     window: Arc<Window>,
-    renderer: Renderer,
+    renderer: WindowRenderer,
+    root: Option<Box<dyn Widget>>,
+    scene: Scene,
+    pointer: Point,
+    /// The main window; closing it exits the app.
+    is_main: bool,
 }
 
 /// The BaseUI application. Build with [`App::new`], configure with the builders,
@@ -74,16 +79,21 @@ pub struct App {
     theme: Theme,
     /// Text scale the active `theme` was derived at.
     applied_scale: f32,
-    root: Option<Box<dyn Widget>>,
+
+    /// Root for the main window, held until it is created.
+    pending_root: Option<Box<dyn Widget>>,
     ui: Option<UiFn>,
-    scene: Scene,
+
     fonts: Option<Rc<Fonts>>,
-    pointer: Point,
+    gpu: Option<GpuContext>,
+    windows: Vec<WindowState>,
+    /// The focused window — where the command palette is drawn.
+    active: Option<WindowId>,
+
     modifiers: Modifiers,
     palette: crate::command::CommandPalette,
     persist_path: Option<std::path::PathBuf>,
     store: crate::persist::Store,
-    state: Option<WindowState>,
 }
 
 impl Default for App {
@@ -100,34 +110,33 @@ impl App {
             base_theme: Theme::default(),
             theme: Theme::default(),
             applied_scale: 1.0,
-            root: None,
+            pending_root: None,
             ui: None,
-            scene: Scene::new(),
             fonts: None,
-            pointer: Point::ZERO,
+            gpu: None,
+            windows: Vec::new(),
+            active: None,
             modifiers: Modifiers::default(),
             palette: crate::command::CommandPalette::new(),
             persist_path: None,
             store: crate::persist::Store::new(),
-            state: None,
         }
     }
 
     /// Persist and restore UI state (split sizes, active tabs, group collapse,
-    /// tree expansion, scroll offsets) and window geometry to `path` between
-    /// runs. Widgets opt in with their own `.persist("key")`.
+    /// tree expansion, scroll offsets, text scale) and main-window geometry.
     pub fn with_persistence(mut self, path: impl Into<std::path::PathBuf>) -> Self {
         self.persist_path = Some(path.into());
         self
     }
 
-    /// Set the window title.
+    /// Set the main window title.
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.config.title = title.into();
         self
     }
 
-    /// Set the initial window size in logical pixels.
+    /// Set the initial main-window size in logical pixels.
     pub fn with_size(mut self, width: u32, height: u32) -> Self {
         self.config.width = width;
         self.config.height = height;
@@ -141,16 +150,34 @@ impl App {
         self
     }
 
-    /// Set the initial global text scale (`1.0` = 100%). Can be changed at any
-    /// time with [`text::set_scale`](crate::text::set_scale); the App re-derives
-    /// the active theme and repaints. Persisted when persistence is enabled.
+    /// Set the initial global text scale (`1.0` = 100%).
     pub fn with_text_scale(self, scale: f32) -> Self {
         crate::text::set_scale(scale);
         self
     }
 
-    /// Re-derive the active theme when the global text scale has changed, so
-    /// spacing and radii stay proportional to the scaled font sizes.
+    /// Attach a retained widget tree as the main window's root.
+    pub fn with_root(mut self, root: impl Widget + 'static) -> Self {
+        self.pending_root = Some(Box::new(root));
+        self
+    }
+
+    /// Set a raw per-frame scene callback for the main window (used when there
+    /// is no widget root).
+    pub fn on_frame(mut self, ui: impl FnMut(&mut Scene, &Frame<'_>) + 'static) -> Self {
+        self.ui = Some(Box::new(ui));
+        self
+    }
+
+    /// Run the application. Blocks until the main window is closed.
+    pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let event_loop = EventLoop::new()?;
+        event_loop.set_control_flow(ControlFlow::Wait);
+        event_loop.run_app(&mut self)?;
+        Ok(())
+    }
+
+    /// Re-derive the active theme when the global text scale changed.
     fn refresh_theme(&mut self) {
         let scale = crate::text::scale();
         if (scale - self.applied_scale).abs() > f32::EPSILON {
@@ -159,77 +186,41 @@ impl App {
         }
     }
 
-    /// Attach a retained widget tree as the application root.
-    pub fn with_root(mut self, root: impl Widget + 'static) -> Self {
-        self.root = Some(Box::new(root));
-        self
+    fn index_of(&self, id: WindowId) -> Option<usize> {
+        self.windows.iter().position(|w| w.window.id() == id)
     }
 
-    /// Set a raw per-frame scene callback (used when there is no widget root).
-    pub fn on_frame(mut self, ui: impl FnMut(&mut Scene, &Frame<'_>) + 'static) -> Self {
-        self.ui = Some(Box::new(ui));
-        self
-    }
-
-    /// Run the application. Blocks until the window is closed.
-    pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let event_loop = EventLoop::new()?;
-        event_loop.set_control_flow(ControlFlow::Wait);
-        event_loop.run_app(&mut self)?;
-        Ok(())
-    }
-
-    /// The whole-window bounds in logical pixels.
-    fn root_bounds(&self) -> Rect {
-        match self.state.as_ref() {
-            Some(state) => {
-                let s = state.renderer.logical_size();
-                Rect::from_xywh(0.0, 0.0, s.width, s.height)
-            }
-            None => Rect::ZERO,
+    fn request_redraw_all(&self) {
+        for state in &self.windows {
+            state.window.request_redraw();
         }
     }
 
-    /// Route a normalized input event to the widget tree, then request a redraw
-    /// (interaction may have changed visual state or signal-backed state).
-    fn dispatch(&mut self, event: InputEvent) {
+    /// Route a normalized input event to one window's widget tree.
+    fn dispatch(&mut self, index: usize, event: InputEvent) {
         self.refresh_theme();
-        let bounds = self.root_bounds();
-        if let (Some(root), Some(fonts)) = (self.root.as_mut(), self.fonts.as_ref()) {
+        let logical = self.windows[index].renderer.logical_size();
+        let bounds = Rect::from_xywh(0.0, 0.0, logical.width, logical.height);
+
+        if let (Some(root), Some(fonts)) = (
+            self.windows[index].root.as_mut(),
+            self.fonts.as_ref(),
+        ) {
             let mut cx = EventCx::new(fonts, &self.theme);
             root.event(&mut cx, bounds, &event);
         }
-        if let Some(state) = self.state.as_ref() {
-            state.window.request_redraw();
-        }
-    }
-
-    fn request_redraw(&self) {
-        if let Some(state) = self.state.as_ref() {
-            state.window.request_redraw();
-        }
-    }
-
-    /// Save widget state and window geometry to the persistence file, if enabled.
-    fn save_state(&mut self) {
-        if self.persist_path.is_none() {
-            return;
-        }
-        if let Some(root) = self.root.as_ref() {
-            root.persist_save(&mut self.store);
-        }
-        if let Some(state) = self.state.as_ref() {
-            let size = state.renderer.logical_size();
-            self.store.set("window.width", &(size.width as f64));
-            self.store.set("window.height", &(size.height as f64));
-        }
-        self.store.set("ui.text_scale", &crate::text::scale());
-        self.store.save();
+        self.windows[index].window.request_redraw();
     }
 
     /// Route a keyboard event: the open command palette first, then global
-    /// shortcuts (including `F1` to toggle the palette), then the focused widget.
-    fn handle_keyboard(&mut self, key: Option<Key>, pressed: bool, text: Option<String>) {
+    /// shortcuts, then the focused widget in the window that received it.
+    fn handle_keyboard(
+        &mut self,
+        index: usize,
+        key: Option<Key>,
+        pressed: bool,
+        text: Option<String>,
+    ) {
         if self.palette.is_open() {
             if pressed {
                 if let Some(k) = &key {
@@ -239,7 +230,7 @@ impl App {
             if let Some(t) = &text {
                 self.palette.on_text(t);
             }
-            self.request_redraw();
+            self.request_redraw_all();
             return;
         }
 
@@ -248,52 +239,72 @@ impl App {
                 let chord = crate::command::chord_of(k, self.modifiers);
                 if chord == "f1" || chord == "ctrl+shift+p" {
                     self.palette.toggle();
-                    self.request_redraw();
+                    self.request_redraw_all();
                     return;
                 }
-                // When a widget holds keyboard focus (e.g. a text field), plain
-                // keys must reach it — only modified chords (Ctrl/Alt/Meta) still
-                // fire global shortcuts, so typing "s" inserts but Ctrl+S saves.
-                // An open popup (menu / combo list) is modal: it suppresses all
-                // shortcuts, but keys still reach the tree so Escape can close it.
+                // A focused text field takes plain keys; modified chords still
+                // fire shortcuts. An open popup is modal and suppresses both.
                 let focused = crate::focus::current().is_some();
                 let modified = self.modifiers.ctrl || self.modifiers.alt || self.modifiers.meta;
                 let popup = crate::popup::is_open();
                 if !popup && (!focused || modified) {
                     if let Some(id) = crate::command::command_for_chord(&chord) {
                         crate::command::run(&id);
-                        self.request_redraw();
+                        self.request_redraw_all();
                         return;
                     }
                 }
             }
         }
 
-        // Deliver to the focused widget.
         if let Some(k) = key {
-            self.dispatch(InputEvent::Key {
-                key: k,
-                pressed,
-                mods: self.modifiers,
-            });
+            self.dispatch(
+                index,
+                InputEvent::Key {
+                    key: k,
+                    pressed,
+                    mods: self.modifiers,
+                },
+            );
         }
         if pressed {
             if let Some(t) = text {
-                self.dispatch(InputEvent::Text { text: t });
+                self.dispatch(index, InputEvent::Text { text: t });
             }
         }
     }
 
-    /// Rebuild the scene (widget tree or raw callback) and draw a frame.
-    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+    /// Save main-window state and geometry to the persistence file, if enabled.
+    fn save_state(&mut self) {
+        if self.persist_path.is_none() {
+            return;
+        }
+        if let Some(main) = self.windows.iter().find(|w| w.is_main) {
+            if let Some(root) = main.root.as_ref() {
+                root.persist_save(&mut self.store);
+            }
+            let size = main.renderer.logical_size();
+            self.store.set("window.width", &(size.width as f64));
+            self.store.set("window.height", &(size.height as f64));
+        }
+        self.store.set("ui.text_scale", &crate::text::scale());
+        self.store.save();
+    }
+
+    /// Build and draw one window's frame.
+    fn redraw(&mut self, index: usize, event_loop: &ActiveEventLoop) {
         self.refresh_theme();
-        let Some(state) = self.state.as_mut() else {
+        let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
+        let Some(fonts) = self.fonts.as_ref() else {
+            return;
+        };
+        let state = &mut self.windows[index];
         let logical = state.renderer.logical_size();
-        self.scene.clear();
+        state.scene.clear();
 
-        if let (Some(root), Some(fonts)) = (self.root.as_mut(), self.fonts.as_ref()) {
+        if let Some(root) = state.root.as_mut() {
             let mut lcx = LayoutCx {
                 fonts,
                 theme: &self.theme,
@@ -304,26 +315,127 @@ impl App {
                 fonts,
                 theme: &self.theme,
             };
-            root.paint(&mut pcx, bounds, &mut self.scene);
-        } else if let Some(ui) = self.ui.as_mut() {
-            let frame = Frame {
-                size: logical,
-                theme: &self.theme,
-            };
-            ui(&mut self.scene, &frame);
+            root.paint(&mut pcx, bounds, &mut state.scene);
+        } else if state.is_main {
+            if let Some(ui) = self.ui.as_mut() {
+                let frame = Frame {
+                    size: logical,
+                    theme: &self.theme,
+                };
+                ui(&mut state.scene, &frame);
+            }
         }
 
-        // The command palette draws above everything (in the overlay layer).
-        if let Some(fonts) = self.fonts.as_ref() {
-            self.palette.paint(fonts, &self.theme, logical, &mut self.scene);
+        // The command palette floats above the *focused* window.
+        let is_active = self.active == Some(state.window.id())
+            || (self.active.is_none() && state.is_main);
+        if is_active {
+            self.palette
+                .paint(fonts, &self.theme, logical, &mut state.scene);
         }
 
-        if let Err(e) = state
-            .renderer
-            .render(&self.scene, self.theme.palette.background)
-        {
+        if let Err(e) = gpu.render(
+            &mut state.renderer,
+            &state.scene,
+            self.theme.palette.background,
+        ) {
             log::error!("render error: {e}");
             event_loop.exit();
+        }
+    }
+
+    /// Create a window and attach it to the app. `root` is `None` for the
+    /// `on_frame` (raw scene) path.
+    #[allow(clippy::too_many_arguments)]
+    fn create_window(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        title: &str,
+        width: u32,
+        height: u32,
+        position: Option<(i32, i32)>,
+        root: Option<Box<dyn Widget>>,
+        is_main: bool,
+    ) -> Option<WindowId> {
+        let mut attributes = Window::default_attributes()
+            .with_title(title.to_string())
+            .with_inner_size(winit::dpi::LogicalSize::new(width as f64, height as f64));
+        if let Some((x, y)) = position {
+            attributes = attributes.with_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
+
+        let window = match event_loop.create_window(attributes) {
+            Ok(window) => Arc::new(window),
+            Err(e) => {
+                log::error!("failed to create window: {e}");
+                return None;
+            }
+        };
+
+        // The first window bootstraps the shared GPU context.
+        let renderer = match self.gpu.as_ref() {
+            Some(gpu) => match gpu.add_window(window.clone()) {
+                Ok(renderer) => renderer,
+                Err(e) => {
+                    log::error!("failed to create surface for new window: {e}");
+                    return None;
+                }
+            },
+            None => {
+                let fonts = self.fonts.clone()?;
+                match GpuContext::new(window.clone(), fonts) {
+                    Ok((gpu, renderer)) => {
+                        self.gpu = Some(gpu);
+                        renderer
+                    }
+                    Err(e) => {
+                        log::error!("failed to initialize GPU: {e}");
+                        event_loop.exit();
+                        return None;
+                    }
+                }
+            }
+        };
+
+        let id = window.id();
+        window.request_redraw();
+        self.windows.push(WindowState {
+            window,
+            renderer,
+            root,
+            scene: Scene::new(),
+            pointer: Point::ZERO,
+            is_main,
+        });
+        Some(id)
+    }
+
+    /// Drain queued open/close window requests (event loop idle).
+    fn process_window_requests(&mut self, event_loop: &ActiveEventLoop) {
+        for request in window::take_requests() {
+            match request {
+                window::Request::Open(spec) => {
+                    self.create_window(
+                        event_loop,
+                        &spec.title,
+                        spec.width,
+                        spec.height,
+                        spec.position,
+                        Some(spec.root),
+                        false,
+                    );
+                }
+                window::Request::Close(id) => {
+                    if let Some(i) = self.index_of(id) {
+                        if self.windows[i].is_main {
+                            self.save_state();
+                            event_loop.exit();
+                        } else {
+                            self.windows.remove(i);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -377,12 +489,11 @@ fn map_key(key: &WKey) -> Option<Key> {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_some() {
+        if !self.windows.is_empty() {
             return;
         }
 
-        // Load fonts once; shared between layout (measurement) and the renderer
-        // (rasterization).
+        // Fonts, shared between layout (measurement) and the GPU (rasterization).
         if self.fonts.is_none() {
             match Fonts::load() {
                 Some(fonts) => self.fonts = Some(fonts),
@@ -393,65 +504,48 @@ impl ApplicationHandler for App {
                 }
             }
         }
-        let fonts = self.fonts.clone().unwrap();
 
-        // Load persisted state (and window geometry) before creating the window.
+        // Persisted state (and window geometry / text scale) before creating it.
         if let Some(path) = &self.persist_path {
             self.store = crate::persist::Store::load(path);
             if let Some(scale) = self.store.get::<f32>("ui.text_scale") {
                 crate::text::set_scale(scale);
             }
         }
-        let mut win_w = self.config.width as f64;
-        let mut win_h = self.config.height as f64;
-        if let (Some(sw), Some(sh)) = (
+        let mut width = self.config.width;
+        let mut height = self.config.height;
+        if let (Some(w), Some(h)) = (
             self.store.get::<f64>("window.width"),
             self.store.get::<f64>("window.height"),
         ) {
-            if sw >= 200.0 && sh >= 150.0 {
-                win_w = sw;
-                win_h = sh;
+            if w >= 200.0 && h >= 150.0 {
+                width = w as u32;
+                height = h as u32;
             }
         }
 
-        let attributes = Window::default_attributes()
-            .with_title(self.config.title.clone())
-            .with_inner_size(winit::dpi::LogicalSize::new(win_w, win_h));
+        // Any signal write repaints *every* window.
+        reactive::set_on_change(window::mark_dirty);
 
-        let window = match event_loop.create_window(attributes) {
-            Ok(window) => Arc::new(window),
-            Err(e) => {
-                log::error!("failed to create window: {e}");
-                event_loop.exit();
-                return;
-            }
+        let root = self.pending_root.take();
+        let title = self.config.title.clone();
+        let Some(id) = self.create_window(event_loop, &title, width, height, None, root, true)
+        else {
+            return;
         };
+        self.active = Some(id);
 
-        // Reactive → repaint bridge: any signal write requests a redraw.
-        let redraw_target = window.clone();
-        reactive::set_on_change(move || redraw_target.request_redraw());
+        // Restore persisted widget state before the first layout.
+        if self.persist_path.is_some() {
+            if let Some(main) = self.windows.iter_mut().find(|w| w.is_main) {
+                if let Some(root) = main.root.as_mut() {
+                    root.persist_restore(&self.store);
+                }
+            }
+        }
 
-        // Debug aid (screenshots / scripted demos): open the command palette on
-        // startup when BASEUI_OPEN_PALETTE is set.
         if std::env::var_os("BASEUI_OPEN_PALETTE").is_some() {
             self.palette.toggle();
-        }
-
-        match Renderer::new(window.clone(), fonts) {
-            Ok(renderer) => {
-                // Restore persisted widget state before the first layout.
-                if self.persist_path.is_some() {
-                    if let Some(root) = self.root.as_mut() {
-                        root.persist_restore(&self.store);
-                    }
-                }
-                window.request_redraw();
-                self.state = Some(WindowState { window, renderer });
-            }
-            Err(e) => {
-                log::error!("failed to initialize renderer: {e}");
-                event_loop.exit();
-            }
         }
     }
 
@@ -461,68 +555,62 @@ impl ApplicationHandler for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        {
-            let Some(state) = self.state.as_ref() else {
-                return;
-            };
-            if state.window.id() != window_id {
-                return;
-            }
-        }
+        let Some(index) = self.index_of(window_id) else {
+            return;
+        };
 
         match event {
             WindowEvent::CloseRequested => {
-                self.save_state();
-                event_loop.exit();
+                if self.windows[index].is_main {
+                    self.save_state();
+                    event_loop.exit();
+                } else {
+                    self.windows.remove(index);
+                }
+            }
+            WindowEvent::Focused(true) => {
+                self.active = Some(window_id);
             }
             WindowEvent::Resized(new_size) => {
-                if let Some(state) = self.state.as_mut() {
-                    state.renderer.resize(new_size);
-                    state.window.request_redraw();
+                if let Some(gpu) = self.gpu.as_ref() {
+                    self.windows[index].renderer.resize(gpu, new_size);
                 }
+                self.windows[index].window.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Some(state) = self.state.as_mut() {
-                    state.renderer.set_scale_factor(scale_factor);
-                    state.window.request_redraw();
-                }
+                self.windows[index]
+                    .renderer
+                    .set_scale_factor(scale_factor);
+                self.windows[index].window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self
-                    .state
-                    .as_ref()
-                    .map(|s| s.renderer.scale_factor())
-                    .unwrap_or(1.0) as f64;
-                self.pointer = Point::new(
-                    (position.x / scale) as f32,
-                    (position.y / scale) as f32,
-                );
-                let pos = self.pointer;
-                self.dispatch(InputEvent::PointerMoved { pos });
+                let scale = self.windows[index].renderer.scale_factor() as f64;
+                let pos = Point::new((position.x / scale) as f32, (position.y / scale) as f32);
+                self.windows[index].pointer = pos;
+                self.dispatch(index, InputEvent::PointerMoved { pos });
             }
             WindowEvent::CursorLeft { .. } => {
-                self.dispatch(InputEvent::PointerLeft);
+                self.dispatch(index, InputEvent::PointerLeft);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(button) = map_button(button) {
-                    let pos = self.pointer;
+                    let pos = self.windows[index].pointer;
                     let event = match state {
                         ElementState::Pressed => InputEvent::PointerPressed { pos, button },
                         ElementState::Released => InputEvent::PointerReleased { pos, button },
                     };
-                    self.dispatch(event);
+                    self.dispatch(index, event);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                // Normalize both delta kinds to approximate "lines".
                 let delta = match delta {
                     MouseScrollDelta::LineDelta(x, y) => Vec2::new(x, y),
                     MouseScrollDelta::PixelDelta(p) => {
                         Vec2::new(p.x as f32 / 16.0, p.y as f32 / 16.0)
                     }
                 };
-                let pos = self.pointer;
-                self.dispatch(InputEvent::Scroll { pos, delta });
+                let pos = self.windows[index].pointer;
+                self.dispatch(index, InputEvent::Scroll { pos, delta });
             }
             WindowEvent::ModifiersChanged(mods) => {
                 let s = mods.state();
@@ -541,12 +629,25 @@ impl ApplicationHandler for App {
                 } else {
                     None
                 };
-                self.handle_keyboard(key, pressed, text);
+                self.handle_keyboard(index, key, pressed, text);
             }
             WindowEvent::RedrawRequested => {
-                self.redraw(event_loop);
+                self.redraw(index, event_loop);
             }
             _ => {}
+        }
+    }
+
+    /// The event loop is going idle: this is the only place we hold an
+    /// `ActiveEventLoop`, so queued windows are created here, and a dirty flag
+    /// from a signal write repaints every window.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.process_window_requests(event_loop);
+        if window::take_dirty() {
+            self.request_redraw_all();
+        }
+        if self.windows.is_empty() {
+            event_loop.exit();
         }
     }
 }
