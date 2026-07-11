@@ -199,6 +199,10 @@ Notes
 
 - click and drag to select; shift+arrows to extend
 - ctrl+A / ctrl+C / ctrl+X / ctrl+V
+- ctrl+Z undoes, ctrl+shift+Z (or ctrl+Y) redoes
+  a run of typing undoes as one word, not one letter
+- ctrl+Home / ctrl+End jump to the ends of the document
+- ctrl+left / ctrl+right jump by word
 - the gutter tracks the caret line
 - unwrap() and TODO get squiggled in the code pane; type one in
 
@@ -215,9 +219,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .line_numbers()
         .font_size(13.0)
         .highlighter(highlight)
-        .checker(check);
+        .checker(check)
+        .undo_history();
 
-    let notes = TextArea::new(NOTES).proportional().font_size(14.0);
+    let notes = TextArea::new(NOTES)
+        .proportional()
+        .font_size(14.0)
+        .undo_history();
 
     let dock = DockArea::new(DockNode::split(
         DockAxis::Horizontal,

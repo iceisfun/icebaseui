@@ -40,6 +40,7 @@ pub mod popup;
 pub mod render;
 pub mod text;
 pub mod theme;
+pub mod undo;
 pub mod widget;
 pub mod window;
 

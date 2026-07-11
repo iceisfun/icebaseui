@@ -45,6 +45,7 @@ baseui/
 │       ├── clipboard    # system clipboard (text)
 │       ├── window       # multi-window: open/close request queue
 │       ├── popup        # popup modality (keyboard capture)
+│       ├── undo         # History trait + built-in snapshot UndoStack
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, TextBox, TextArea, ComboBox,
 │       │                #   HexView, ScrollArea, TreeView, PropertyView, TabView,
@@ -103,7 +104,8 @@ cargo clippy --workspace
       editable **TextBox** (caret, selection, clipboard, password) and
       **ComboBox**. `ScrollArea` landed in M5; a `Grid` container is still open.
       **`TextArea`** followed: multi-line editing with a pluggable syntax
-      highlighter and squiggle-underlined diagnostics (see the `editor` example).
+      highlighter, squiggle-underlined diagnostics, and opt-in undo/redo behind
+      an injectable `History` trait (see the `editor` example).
 - [x] **M5 — Flagship widgets:** `ScrollArea`, `TreeView` (expand/collapse,
       colored type icons, selection, hover), and `PropertyView` (collapsible
       groups with colored section icons; rows embed real editor widgets). See

@@ -15,7 +15,10 @@
 //!   separate coloured runs (the same trick [`HexView`](super::HexView) uses),
 //! - **diagnostics** — squiggly underlines under a range, via the `Squiggle`
 //!   decoration primitive,
-//! - **line numbers**, current-line highlight, and selection.
+//! - **line numbers**, current-line highlight, and selection,
+//! - **undo/redo** — opt in with [`TextArea::undo_history`], or inject your own
+//!   [`History`](crate::undo::History) implementation with [`TextArea::history`]
+//!   when whole-document snapshots are too heavy for your document.
 //!
 //! Only the *visible* lines are laid out and painted, so a long document costs
 //! what fits on screen.
@@ -32,6 +35,7 @@ use crate::event::{InputEvent, Key, Modifiers, PointerButton};
 use crate::focus;
 use crate::layout::Constraints;
 use crate::text::FontId;
+use crate::undo::{EditKind, History, Snapshot, UndoStack};
 
 /// A coloured run within one line, in **character** columns.
 #[derive(Clone, Copy, Debug)]
@@ -91,6 +95,9 @@ pub struct TextArea {
     diagnostics: Vec<Diagnostic>,
     checker: Option<Checker>,
     on_change: Option<ChangeFn>,
+    /// Undo/redo, if enabled. `None` means edits are not recorded at all — a
+    /// read-only log view has no use for a history.
+    history: Option<Box<dyn History>>,
     hovered: bool,
 }
 
@@ -113,6 +120,7 @@ impl TextArea {
             diagnostics: Vec::new(),
             checker: None,
             on_change: None,
+            history: None,
             hovered: false,
         }
     }
@@ -186,6 +194,33 @@ impl TextArea {
         }
     }
 
+    /// Enable undo/redo with the built-in [`UndoStack`] — Ctrl+Z, and Ctrl+Shift+Z
+    /// or Ctrl+Y to redo.
+    ///
+    /// The built-in keeps whole-document snapshots, which is simple and correct
+    /// for source files, scripts, and config. If your document is large enough
+    /// that copying it per edit hurts, inject your own with [`Self::history`].
+    pub fn undo_history(mut self) -> Self {
+        self.history = Some(Box::new(UndoStack::new()));
+        self
+    }
+
+    /// Inject a [`History`] implementation — a piece table, a rope, an operation
+    /// log, whatever fits your document.
+    pub fn history(mut self, history: impl History + 'static) -> Self {
+        self.history = Some(Box::new(history));
+        self
+    }
+
+    /// Whether there is anything to undo / redo — for enabling menu items.
+    pub fn can_undo(&self) -> bool {
+        self.history.as_ref().is_some_and(|h| h.can_undo())
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.as_ref().is_some_and(|h| h.can_redo())
+    }
+
     /// Called with the whole document after every edit.
     pub fn on_change(mut self, f: impl FnMut(&str) + 'static) -> Self {
         self.on_change = Some(Box::new(f));
@@ -222,6 +257,9 @@ impl TextArea {
     }
 
     fn move_caret(&mut self, to: (usize, usize), extend: bool) {
+        // Typing, moving, then typing again must be two undo steps, not one lump
+        // spanning both places.
+        self.close_group();
         if extend {
             if self.anchor.is_none() {
                 self.anchor = Some(self.caret);
@@ -230,6 +268,100 @@ impl TextArea {
             self.anchor = None;
         }
         self.caret = self.clamp(to);
+    }
+
+    // -- undo/redo ---------------------------------------------------------
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            text: self.text(),
+            caret: self.caret,
+            anchor: self.anchor,
+        }
+    }
+
+    /// Record the state *before* an edit. Called by every mutating operation, so
+    /// there is exactly one place an edit can be forgotten from.
+    fn record(&mut self, kind: EditKind) {
+        if let Some(history) = self.history.as_mut() {
+            let before = Snapshot {
+                text: self.lines.join("\n"),
+                caret: self.caret,
+                anchor: self.anchor,
+            };
+            history.record(before, kind);
+        }
+    }
+
+    /// End the coalescing group: the caret moved, so the next edit is a new step
+    /// rather than a continuation of the last one.
+    fn close_group(&mut self) {
+        if let Some(history) = self.history.as_mut() {
+            history.close_group();
+        }
+    }
+
+    fn restore(&mut self, snapshot: Snapshot) {
+        self.lines = split_lines(&snapshot.text);
+        self.caret = self.clamp(snapshot.caret);
+        self.anchor = snapshot.anchor;
+        // Re-check and notify: an undone document is a changed document. It is
+        // *not* re-recorded — the history moved us here, it already knows.
+        self.changed();
+    }
+
+    fn undo(&mut self) {
+        if self.read_only {
+            return;
+        }
+        let current = self.snapshot();
+        let restored = self.history.as_mut().and_then(|h| h.undo(current));
+        if let Some(snapshot) = restored {
+            self.restore(snapshot);
+        }
+    }
+
+    fn redo(&mut self) {
+        if self.read_only {
+            return;
+        }
+        let current = self.snapshot();
+        let restored = self.history.as_mut().and_then(|h| h.redo(current));
+        if let Some(snapshot) = restored {
+            self.restore(snapshot);
+        }
+    }
+
+    // -- word boundaries ---------------------------------------------------
+
+    /// The start of the word at or before `col` — where Ctrl+Left lands.
+    ///
+    /// Skips any whitespace immediately behind the caret first, so Ctrl+Left from
+    /// the start of a word jumps over the gap to the previous word rather than
+    /// stalling on the space.
+    fn word_start(&self, line: usize, col: usize) -> usize {
+        let chars: Vec<char> = self.lines[line].chars().collect();
+        let mut i = col.min(chars.len());
+        while i > 0 && chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        while i > 0 && !chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        i
+    }
+
+    /// The end of the word at or after `col` — where Ctrl+Right lands.
+    fn word_end(&self, line: usize, col: usize) -> usize {
+        let chars: Vec<char> = self.lines[line].chars().collect();
+        let mut i = col.min(chars.len());
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        while i < chars.len() && !chars[i].is_whitespace() {
+            i += 1;
+        }
+        i
     }
 
     /// Called after every mutation: re-check, then notify.
@@ -263,6 +395,19 @@ impl TextArea {
         if self.read_only {
             return;
         }
+        // Classify the edit so the history can group it sensibly: a single
+        // ordinary character continues a word, whitespace ends one, and anything
+        // bulkier (a paste, an autocompletion) is one user action on its own.
+        // Replacing a selection is never a continuation of the typing before it.
+        let kind = if self.selection().is_some() || text.chars().count() > 1 {
+            EditKind::Paste
+        } else if text.chars().next().is_some_and(char::is_whitespace) {
+            EditKind::Break
+        } else {
+            EditKind::Typing
+        };
+        self.record(kind);
+
         self.delete_selection();
         let (line, col) = self.caret;
         let current = &self.lines[line];
@@ -293,6 +438,11 @@ impl TextArea {
         if self.read_only {
             return;
         }
+        self.record(if self.selection().is_some() {
+            EditKind::Paste // deleting a selection is one action, not a run
+        } else {
+            EditKind::Delete
+        });
         if self.delete_selection() {
             self.changed();
             return;
@@ -317,6 +467,11 @@ impl TextArea {
         if self.read_only {
             return;
         }
+        self.record(if self.selection().is_some() {
+            EditKind::Paste
+        } else {
+            EditKind::Delete
+        });
         if self.delete_selection() {
             self.changed();
             return;
@@ -419,6 +574,11 @@ impl TextArea {
         let (line, col) = self.caret;
 
         match key {
+            // Ctrl+arrow jumps a word; plain arrow steps a character and wraps
+            // over the line break, so Left at column 0 lands at the end of the
+            // previous line rather than doing nothing.
+            Key::Left if ctrl => self.move_caret((line, self.word_start(line, col)), shift),
+            Key::Right if ctrl => self.move_caret((line, self.word_end(line, col)), shift),
             Key::Left => {
                 if col > 0 {
                     self.move_caret((line, col - 1), shift);
@@ -442,6 +602,13 @@ impl TextArea {
                 if line + 1 < self.lines.len() {
                     self.move_caret((line + 1, col), shift);
                 }
+            }
+            // Ctrl+Home/End go to the ends of the *document*; bare Home/End to the
+            // ends of the line.
+            Key::Home if ctrl => self.move_caret((0, 0), shift),
+            Key::End if ctrl => {
+                let last = self.lines.len().saturating_sub(1);
+                self.move_caret((last, self.line_len(last)), shift);
             }
             Key::Home => self.move_caret((line, 0), shift),
             Key::End => self.move_caret((line, self.line_len(line)), shift),
@@ -468,6 +635,7 @@ impl TextArea {
                     let text = self.selected_text();
                     if !text.is_empty() && !self.read_only {
                         crate::clipboard::set_text(&text);
+                        self.record(EditKind::Paste); // a cut is one action
                         self.delete_selection();
                         self.changed();
                     }
@@ -477,6 +645,11 @@ impl TextArea {
                         self.insert(&text);
                     }
                 }
+                // Ctrl+Shift+Z and Ctrl+Y both redo: the two conventions users
+                // arrive with, and there is no cost to honouring both.
+                'z' if shift => self.redo(),
+                'z' => self.undo(),
+                'y' => self.redo(),
                 _ => {}
             },
             _ => {}
@@ -717,6 +890,9 @@ impl Widget for TextArea {
             } => {
                 if bounds.contains(*pos) {
                     focus::set(self.id);
+                    // Clicking moves the caret, so it ends the undo group just as
+                    // an arrow key would — this does not go through move_caret().
+                    self.close_group();
                     let at = self.pos_at(cx.fonts, bounds, *pos);
                     self.caret = at;
                     self.anchor = Some(at);
@@ -885,6 +1061,147 @@ mod tests {
         // Opting out is allowed, but never below the face's own box.
         let tight = TextArea::new("x").font_size(13.0).line_spacing(0.5);
         assert!((tight.line_height(&fonts) - natural).abs() < 0.01);
+    }
+
+    fn ctrl(k: Key) -> InputEvent {
+        InputEvent::Key {
+            key: k,
+            pressed: true,
+            mods: Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn ctrl_shift(k: Key) -> InputEvent {
+        InputEvent::Key {
+            key: k,
+            pressed: true,
+            mods: Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn typed(s: &str) -> InputEvent {
+        InputEvent::Text { text: s.into() }
+    }
+
+    /// Undo through the real key path: typing a word, then Ctrl+Z, must take the
+    /// whole word back — and Ctrl+Shift+Z must put it back.
+    #[test]
+    fn ctrl_z_undoes_a_word_and_ctrl_shift_z_redoes_it() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = TextArea::new("").undo_history();
+        focus::set(t.id);
+        for ch in ["h", "i", "!"] {
+            t.event(&mut cx, bounds, &typed(ch));
+        }
+        assert_eq!(t.text(), "hi!");
+        assert!(t.can_undo());
+
+        t.event(&mut cx, bounds, &ctrl(Key::Character('z')));
+        assert_eq!(t.text(), "", "a run of typing undoes as one step");
+        assert!(t.can_redo());
+
+        t.event(&mut cx, bounds, &ctrl_shift(Key::Character('z')));
+        assert_eq!(t.text(), "hi!");
+    }
+
+    /// Undo restores the caret, not just the text — otherwise the user has to go
+    /// hunting for what changed.
+    #[test]
+    fn undo_restores_the_caret() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = TextArea::new("ab").undo_history();
+        focus::set(t.id);
+        t.caret = (0, 1);
+        t.event(&mut cx, bounds, &typed("X"));
+        assert_eq!((t.text().as_str(), t.caret), ("aXb", (0, 2)));
+
+        t.event(&mut cx, bounds, &ctrl(Key::Character('z')));
+        assert_eq!((t.text().as_str(), t.caret), ("ab", (0, 1)));
+    }
+
+    /// With no history enabled, Ctrl+Z is inert — it must not eat the document.
+    #[test]
+    fn undo_is_inert_when_no_history_is_enabled() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = ta("hello"); // no .undo_history()
+        t.event(&mut cx, bounds, &ctrl(Key::Character('z')));
+        assert_eq!(t.text(), "hello");
+        assert!(!t.can_undo());
+    }
+
+    #[test]
+    fn ctrl_home_and_end_go_to_the_ends_of_the_document() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = ta("one\ntwo\nthree");
+        t.caret = (1, 1);
+
+        t.event(&mut cx, bounds, &ctrl(Key::End));
+        assert_eq!(t.caret, (2, 5), "ctrl+End goes to the end of the document");
+
+        t.event(&mut cx, bounds, &ctrl(Key::Home));
+        assert_eq!(
+            t.caret,
+            (0, 0),
+            "ctrl+Home goes to the start of the document"
+        );
+
+        // Bare Home/End still work on the line.
+        t.caret = (1, 1);
+        t.event(&mut cx, bounds, &key(Key::End));
+        assert_eq!(t.caret, (1, 3));
+        t.event(&mut cx, bounds, &key(Key::Home));
+        assert_eq!(t.caret, (1, 0));
+
+        // Shift+Ctrl+End selects to the end of the document.
+        t.caret = (0, 0);
+        t.anchor = None;
+        t.event(&mut cx, bounds, &ctrl_shift(Key::End));
+        assert_eq!(t.anchor, Some((0, 0)));
+        assert_eq!(t.caret, (2, 5));
+    }
+
+    #[test]
+    fn ctrl_arrows_jump_by_word() {
+        let Some(fonts) = Fonts::load() else { return };
+        let theme = Theme::dark();
+        let mut cx = EventCx::new(&fonts, &theme, Size::new(600.0, 400.0));
+        let bounds = Rect::from_xywh(0.0, 0.0, 600.0, 400.0);
+
+        let mut t = ta("let x = 1");
+        t.caret = (0, 0);
+
+        t.event(&mut cx, bounds, &ctrl(Key::Right));
+        assert_eq!(t.caret, (0, 3), "end of 'let'");
+        t.event(&mut cx, bounds, &ctrl(Key::Right));
+        assert_eq!(t.caret, (0, 5), "skips the gap, end of 'x'");
+
+        t.event(&mut cx, bounds, &ctrl(Key::Left));
+        assert_eq!(t.caret, (0, 4), "back to the start of 'x'");
+        t.event(&mut cx, bounds, &ctrl(Key::Left));
+        assert_eq!(t.caret, (0, 0), "over the gap, start of 'let'");
     }
 
     #[test]
