@@ -24,8 +24,11 @@
 //! reactive runtime. A signal write repaints every window.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub use winit::window::WindowId;
+use winit::window::Window;
 
 use crate::widget::Widget;
 
@@ -96,6 +99,69 @@ pub fn focused() -> Option<WindowId> {
 
 pub(crate) fn set_focused(id: Option<WindowId>) {
     FOCUSED.with(|f| f.set(id));
+}
+
+thread_local! {
+    /// Live window handles, so widgets can query/move windows other than their
+    /// own — needed for cross-window tab dragging (a torn-off window has to
+    /// follow the cursor, and the drop target lives in a different window).
+    static HANDLES: RefCell<HashMap<WindowId, Arc<Window>>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) fn register_handle(id: WindowId, window: Arc<Window>) {
+    HANDLES.with(|h| h.borrow_mut().insert(id, window));
+}
+
+pub(crate) fn unregister_handle(id: WindowId) {
+    HANDLES.with(|h| h.borrow_mut().remove(&id));
+}
+
+fn with_handle<R>(id: WindowId, f: impl FnOnce(&Window) -> R) -> Option<R> {
+    HANDLES.with(|h| h.borrow().get(&id).map(|w| f(w)))
+}
+
+/// Top-left of a window's **client area** in physical screen coordinates.
+pub fn inner_position(id: WindowId) -> Option<(i32, i32)> {
+    with_handle(id, |w| w.inner_position().ok().map(|p| (p.x, p.y)))?
+}
+
+/// Top-left of a window's outer frame in physical screen coordinates.
+pub fn outer_position(id: WindowId) -> Option<(i32, i32)> {
+    with_handle(id, |w| w.outer_position().ok().map(|p| (p.x, p.y)))?
+}
+
+/// A window's DPI scale factor.
+pub fn scale_factor(id: WindowId) -> Option<f64> {
+    with_handle(id, |w| w.scale_factor())
+}
+
+/// Move a window (its outer frame) to physical screen coordinates.
+pub fn set_position(id: WindowId, x: i32, y: i32) {
+    with_handle(id, |w| {
+        w.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+    });
+}
+
+/// Convert a position inside `id`'s client area (logical px) to physical screen
+/// coordinates. This is how a drag gets a *global* cursor position: while a
+/// button is held, the pressing window keeps receiving CursorMoved even when the
+/// pointer leaves it (the platform's implicit pointer grab), so its local
+/// coordinates — possibly negative — still describe where the cursor is.
+pub fn to_screen(id: WindowId, local: baseui_core::Point) -> Option<(f32, f32)> {
+    let (ox, oy) = inner_position(id)?;
+    let scale = scale_factor(id)? as f32;
+    Some((ox as f32 + local.x * scale, oy as f32 + local.y * scale))
+}
+
+/// Inverse of [`to_screen`]: a physical screen position, in `id`'s logical
+/// client coordinates.
+pub fn from_screen(id: WindowId, screen: (f32, f32)) -> Option<baseui_core::Point> {
+    let (ox, oy) = inner_position(id)?;
+    let scale = scale_factor(id)? as f32;
+    Some(baseui_core::Point::new(
+        (screen.0 - ox as f32) / scale,
+        (screen.1 - oy as f32) / scale,
+    ))
 }
 
 /// Queue a new window. It opens the next time the event loop goes idle.

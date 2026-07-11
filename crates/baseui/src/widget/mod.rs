@@ -82,6 +82,8 @@ pub struct PaintCx<'a> {
     pub theme: &'a Theme,
     /// The window's logical size — popups use it to stay on screen.
     pub screen: Size,
+    /// Which window is being painted, when known.
+    pub window: Option<crate::window::WindowId>,
 }
 
 /// Context shared by the event pass.

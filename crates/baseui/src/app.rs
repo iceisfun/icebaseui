@@ -331,6 +331,7 @@ impl App {
                 fonts,
                 theme: &self.theme,
                 screen: logical,
+                window: Some(state.window.id()),
             };
             root.paint(&mut pcx, bounds, &mut state.scene);
         } else if state.is_main {
@@ -416,6 +417,7 @@ impl App {
         };
 
         let id = window.id();
+        window::register_handle(id, window.clone());
         window.request_redraw();
         self.windows.push(WindowState {
             window,
@@ -451,6 +453,7 @@ impl App {
                             self.save_state();
                             event_loop.exit();
                         } else {
+                            window::unregister_handle(id);
                             self.windows.remove(i);
                         }
                     }
@@ -586,6 +589,7 @@ impl ApplicationHandler for App {
                     self.save_state();
                     event_loop.exit();
                 } else {
+                    window::unregister_handle(window_id);
                     self.windows.remove(index);
                 }
             }

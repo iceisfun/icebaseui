@@ -34,20 +34,96 @@ use crate::layout::Constraints;
 use crate::text::FontId;
 use crate::window::{self, WindowSpec};
 
+/// A drop target another window's DockArea has claimed for the dragged panel.
+#[derive(Clone, Debug)]
+struct Claim {
+    window: window::WindowId,
+    path: Vec<usize>,
+    zone: DropZone,
+}
+
+/// A **cross-window** tab drag.
+///
+/// The window that received the press keeps the platform's implicit pointer
+/// grab, so it goes on receiving `CursorMoved` (with out-of-bounds coordinates)
+/// even once the cursor leaves it. That window is the `driver`: it moves the
+/// torn-off `carrier` window and ends the gesture. Every *other* DockArea reads
+/// the session while painting, and claims the drop if the cursor is over it.
+struct DragSession {
+    panel_id: String,
+    /// The floating window now holding the panel (set by it on first layout).
+    carrier: Option<window::WindowId>,
+    /// Cursor in **physical screen** coordinates.
+    global: (f32, f32),
+    /// Cursor -> carrier top-left offset, so the window tracks smoothly.
+    grab_offset: (f32, f32),
+    claim: Option<Claim>,
+    /// The driver released; the carrier acts on it at its next layout.
+    finished: bool,
+}
+
 thread_local! {
-    /// Panels handed back by a floating window, waiting to be re-absorbed by the
-    /// DockArea on its next layout. Content moves as an owned `Panel`, so the
-    /// widget itself is never duplicated or re-parented behind anyone's back.
-    static REDOCK: RefCell<Vec<Panel>> = const { RefCell::new(Vec::new()) };
+    /// Panels moving between windows: owned content plus where it should land.
+    static REDOCK: RefCell<Vec<(Panel, Option<Claim>)>> = const { RefCell::new(Vec::new()) };
+    static SESSION: RefCell<Option<DragSession>> = const { RefCell::new(None) };
 }
 
 fn queue_redock(panel: Panel) {
-    REDOCK.with(|r| r.borrow_mut().push(panel));
+    REDOCK.with(|r| r.borrow_mut().push((panel, None)));
     window::mark_dirty();
 }
 
-fn take_redock() -> Vec<Panel> {
+fn queue_redock_at(panel: Panel, claim: Option<Claim>) {
+    REDOCK.with(|r| r.borrow_mut().push((panel, claim)));
+    window::mark_dirty();
+}
+
+fn take_redock() -> Vec<(Panel, Option<Claim>)> {
     REDOCK.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
+fn session_begin(panel_id: String, global: (f32, f32), grab_offset: (f32, f32)) {
+    SESSION.with(|s| {
+        *s.borrow_mut() = Some(DragSession {
+            panel_id,
+            carrier: None,
+            global,
+            grab_offset,
+            claim: None,
+            finished: false,
+        })
+    });
+    window::mark_dirty();
+}
+
+fn session_end() {
+    SESSION.with(|s| *s.borrow_mut() = None);
+    window::mark_dirty();
+}
+
+fn with_session<R>(f: impl FnOnce(&mut DragSession) -> R) -> Option<R> {
+    SESSION.with(|s| s.borrow_mut().as_mut().map(f))
+}
+
+/// A read-only view of the drag session, so callers don't hold the RefCell.
+struct SessionView {
+    global: (f32, f32),
+    carrier: Option<window::WindowId>,
+    claim: Option<Claim>,
+    finished: bool,
+    panel_id: String,
+}
+
+fn session_snapshot() -> Option<SessionView> {
+    SESSION.with(|s| {
+        s.borrow().as_ref().map(|d| SessionView {
+            global: d.global,
+            carrier: d.carrier,
+            claim: d.claim.clone(),
+            finished: d.finished,
+            panel_id: d.panel_id.clone(),
+        })
+    })
 }
 
 thread_local! {
@@ -217,6 +293,9 @@ struct TabDrag {
     /// Only a real drag once the pointer has moved past a threshold.
     active: bool,
     target: Option<DropTarget>,
+    /// The panel has been torn out into a floating window that now follows the
+    /// cursor. From here on this DockArea is only the *driver* of the gesture.
+    torn_off: bool,
 }
 
 /// A flattened tab group produced by the layout walk.
@@ -571,6 +650,18 @@ fn insert_tab(root: &mut DockNode, path: &[usize], index: usize, panel: String) 
     }
 }
 
+/// Put `panel` into the tree at `path` according to `zone` — the exact placement
+/// a drop indicator was showing. Shared by in-window drops and cross-window
+/// drops (where the claim travels with the panel between windows).
+fn apply_placement(root: &mut DockNode, path: &[usize], zone: &DropZone, panel: String) {
+    match zone {
+        DropZone::Tab(index) => insert_tab(root, path, *index, panel),
+        DropZone::Split(side) => split_with(root, path, *side, panel),
+    }
+    let owned = std::mem::replace(root, DockNode::tabs(Vec::<String>::new()));
+    *root = prune(owned).unwrap_or_else(|| DockNode::tabs(Vec::<String>::new()));
+}
+
 /// Replace the node at `path` with a split of [existing, new-tab] on `side`.
 fn split_with(root: &mut DockNode, path: &[usize], side: Side, panel: String) {
     let Some(node) = node_at_mut(root, path) else {
@@ -606,9 +697,18 @@ impl Widget for DockArea {
             600.0
         };
 
-        // Absorb any panels a floating window handed back.
-        for panel in take_redock() {
-            self.panels.insert(panel.id.clone(), panel);
+        // Absorb any panels handed back to us — including one dropped in from
+        // another window, which arrives with the exact placement it was dropped
+        // on. A panel with no claim (or a claim for a different window) simply
+        // gets adopted by `adopt_orphans`.
+        for (panel, claim) in take_redock() {
+            let id = panel.id.clone();
+            self.panels.insert(id.clone(), panel);
+            if let Some(claim) = claim {
+                if Some(claim.window) == cx.window {
+                    apply_placement(&mut self.root, &claim.path, &claim.zone, id);
+                }
+            }
         }
         self.drop_unknown();
         self.adopt_orphans();
@@ -757,9 +857,59 @@ impl Widget for DockArea {
             scene.rounded_rect(handle, color, 1.0);
         }
 
-        // Drag feedback: the drop indicator, then a ghost following the cursor.
+        // A cross-window drag is in flight and the panel is being carried by
+        // another window: if the cursor is over us, CLAIM the drop and show where
+        // it would land. The carrier reads the claim when the drag is released.
+        if let (Some(my), Some(session)) = (cx.window, session_snapshot()) {
+            let (global, carrier, claim) = (session.global, session.carrier, session.claim);
+            if Some(my) != carrier {
+                let local = window::from_screen(my, global);
+                let mine = local
+                    .filter(|l| bounds.contains(*l))
+                    .and_then(|l| self.drop_target(bounds, l));
+
+                match &mine {
+                    Some(target) => {
+                        with_session(|s| {
+                            s.claim = Some(Claim {
+                                window: my,
+                                path: target.path.clone(),
+                                zone: target.zone.clone(),
+                            })
+                        });
+                    }
+                    None => {
+                        if claim.as_ref().map(|c| c.window) == Some(my) {
+                            with_session(|s| s.claim = None);
+                        }
+                    }
+                }
+
+                if let Some(target) = mine {
+                    if let Some(group) = self.groups.iter().find(|g| g.path == target.path) {
+                        let rect = indicator_rect(
+                            super::absolute(bounds, group.rect),
+                            super::absolute(bounds, group.strip),
+                            &target.zone,
+                            group,
+                            bounds,
+                            s,
+                        );
+                        scene.begin_overlay();
+                        scene.push_rect(
+                            RectShape::fill(rect, p.accent.with_alpha(0.28))
+                                .with_corner_radius(cx.theme.radius.sm)
+                                .with_border(2.0, p.accent),
+                        );
+                        scene.end_overlay();
+                    }
+                }
+            }
+        }
+
+        // In-window drag feedback: the drop indicator, then a ghost tab.
         if let Some(drag) = &self.drag {
-            if drag.active {
+            if drag.active && !drag.torn_off {
                 scene.begin_overlay();
                 if let Some(target) = &drag.target {
                     if let Some(group) = self.groups.iter().find(|g| g.path == target.path) {
@@ -822,7 +972,8 @@ impl Widget for DockArea {
         if self.drag.is_some() {
             match event {
                 InputEvent::PointerMoved { pos } => {
-                    self.update_drag(bounds, *pos);
+                    let pos = *pos;
+                    self.update_drag(cx, bounds, pos);
                     cx.consume();
                     return;
                 }
@@ -924,6 +1075,7 @@ impl Widget for DockArea {
                         pos: *pos,
                         active: false,
                         target: None,
+                        torn_off: false,
                     });
                     cx.consume();
                 }
@@ -1117,15 +1269,80 @@ impl DockArea {
         None
     }
 
-    fn update_drag(&mut self, bounds: Rect, pos: Point) {
+    fn update_drag(&mut self, cx: &EventCx<'_>, bounds: Rect, pos: Point) {
         let target = self.drop_target(bounds, pos);
-        if let Some(drag) = &mut self.drag {
-            drag.pos = pos;
-            if !drag.active && (pos - drag.start).length() > DRAG_THRESHOLD {
-                drag.active = true;
-            }
-            drag.target = if drag.active { target } else { None };
+        let Some(drag) = &mut self.drag else { return };
+        drag.pos = pos;
+        if !drag.active && (pos - drag.start).length() > DRAG_THRESHOLD {
+            drag.active = true;
         }
+        if !drag.active {
+            return;
+        }
+
+        let inside = bounds.contains(pos);
+        let torn_off = drag.torn_off;
+        let panel_id = drag.panel.clone();
+        drag.target = if inside && !torn_off { target } else { None };
+
+        // Leaving the dock tears the panel out into a floating window that
+        // follows the cursor from now on.
+        if !inside && !torn_off {
+            drag.torn_off = true;
+            self.tear_off(cx, pos, &panel_id);
+            return;
+        }
+
+        if torn_off {
+            // We are the driver: keep the session's global cursor up to date and
+            // move the carrier window with it.
+            if let (Some(win), Some(global)) = (cx.window, cx.window.and_then(|w| window::to_screen(w, pos)))
+            {
+                let _ = win;
+                let carrier = with_session(|s| {
+                    s.global = global;
+                    s.carrier
+                })
+                .flatten();
+                if let Some(carrier) = carrier {
+                    let offset = with_session(|s| s.grab_offset).unwrap_or((0.0, 0.0));
+                    window::set_position(
+                        carrier,
+                        (global.0 + offset.0) as i32,
+                        (global.1 + offset.1) as i32,
+                    );
+                }
+                window::mark_dirty();
+            }
+        }
+    }
+
+    /// Pull the panel out into a floating window under the cursor, and open a
+    /// cross-window drag session that this DockArea drives.
+    fn tear_off(&mut self, cx: &EventCx<'_>, pos: Point, id: &str) {
+        let Some(win) = cx.window else { return };
+        let Some(global) = window::to_screen(win, pos) else {
+            return;
+        };
+        let Some(panel) = self.take_panel(id) else {
+            return;
+        };
+        let title = format!("BaseUI — {}", panel.title);
+
+        // Carry the window a little under-left of the cursor so the tab appears
+        // to stay attached to the pointer.
+        let grab_offset = (-40.0, -14.0);
+        session_begin(id.to_string(), global, grab_offset);
+
+        window::open(
+            WindowSpec::new(title, FloatingPanel::new(panel))
+                .size(460, 340)
+                .position(
+                    (global.0 + grab_offset.0) as i32,
+                    (global.1 + grab_offset.1) as i32,
+                )
+                .context("panel"),
+        );
     }
 
     /// Apply the drop. Mutation order matters: remove WITHOUT pruning first (so
@@ -1134,6 +1351,14 @@ impl DockArea {
         let Some(drag) = self.drag.take() else {
             return;
         };
+        if drag.torn_off {
+            // The panel is in the carrier window. Signal the release; the carrier
+            // either docks it into whichever DockArea claimed the drop, or stays
+            // floating where it was let go.
+            with_session(|s| s.finished = true);
+            window::mark_dirty();
+            return;
+        }
         if !drag.active {
             return; // a plain click
         }
@@ -1332,6 +1557,9 @@ struct FloatingPanel {
     header_h: f32,
     dock_rect: Rect,
     hovered_dock: bool,
+    /// Dragging this window's header: the local point the user grabbed. The
+    /// window is moved so that point stays under the cursor.
+    header_grab: Option<Point>,
 }
 
 impl FloatingPanel {
@@ -1342,6 +1570,7 @@ impl FloatingPanel {
             header_h: 30.0,
             dock_rect: Rect::ZERO,
             hovered_dock: false,
+            header_grab: None,
         }
     }
 
@@ -1365,6 +1594,31 @@ impl Widget for FloatingPanel {
             }
             if let Some(id) = cx.window {
                 window::close(id);
+            }
+        }
+
+        // Cross-window drag bookkeeping.
+        if let (Some(my), Some(session)) = (cx.window, session_snapshot()) {
+            let (carrier, claim, finished) = (session.carrier, session.claim, session.finished);
+            let is_mine = self.panel.as_ref().map(|p| p.id.clone()) == Some(session.panel_id);
+
+            // We were just torn off: announce ourselves as the carrier so the
+            // driver can move us with the cursor.
+            if carrier.is_none() && is_mine {
+                with_session(|s| s.carrier = Some(my));
+            }
+
+            // The drag was released. If a DockArea claimed the drop, hand it the
+            // panel (with the exact placement) and close; otherwise stay floating
+            // right where the user let go.
+            if finished && (carrier == Some(my) || (carrier.is_none() && is_mine)) {
+                if let Some(claim) = claim {
+                    if let Some(panel) = self.panel.take() {
+                        queue_redock_at(panel, Some(claim));
+                    }
+                    window::close(my);
+                }
+                session_end();
             }
         }
 
@@ -1461,9 +1715,62 @@ impl Widget for FloatingPanel {
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
         let btn = super::absolute(bounds, self.dock_rect);
+        let header = Rect::from_xywh(bounds.left(), bounds.top(), bounds.width(), self.header_h);
+
+        // Dragging the header drags the whole window — and opens a drag session,
+        // so any DockArea the cursor passes over can claim the drop.
+        if let Some(grab) = self.header_grab {
+            match event {
+                InputEvent::PointerMoved { pos } => {
+                    if let Some(my) = cx.window {
+                        if let Some(global) = window::to_screen(my, *pos) {
+                            with_session(|s| s.global = global);
+                        }
+                        // Move the window so the grabbed point stays under the
+                        // cursor. (After the move the cursor reports ~the grab
+                        // point again, so this converges rather than running away.)
+                        let scale = window::scale_factor(my).unwrap_or(1.0) as f32;
+                        if let Some((ox, oy)) = window::outer_position(my) {
+                            let dx = (pos.x - grab.x) * scale;
+                            let dy = (pos.y - grab.y) * scale;
+                            window::set_position(my, ox + dx as i32, oy + dy as i32);
+                        }
+                        window::mark_dirty();
+                    }
+                    cx.consume();
+                    return;
+                }
+                InputEvent::PointerReleased {
+                    button: PointerButton::Primary,
+                    ..
+                } => {
+                    self.header_grab = None;
+                    with_session(|s| s.finished = true);
+                    window::mark_dirty();
+                    cx.consume();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match event {
             InputEvent::PointerMoved { pos } => self.hovered_dock = btn.contains(*pos),
             InputEvent::PointerLeft => self.hovered_dock = false,
+            InputEvent::PointerPressed {
+                pos,
+                button: PointerButton::Primary,
+            } if header.contains(*pos) && !btn.contains(*pos) => {
+                if let (Some(my), Some(panel)) = (cx.window, self.panel.as_ref()) {
+                    if let Some(global) = window::to_screen(my, *pos) {
+                        session_begin(panel.id.clone(), global, (0.0, 0.0));
+                        with_session(|s| s.carrier = Some(my));
+                        self.header_grab = Some(*pos);
+                    }
+                }
+                cx.consume();
+                return;
+            }
             InputEvent::PointerPressed {
                 pos,
                 button: PointerButton::Primary,
@@ -1523,7 +1830,29 @@ mod tests {
         queue_redock(taken);
         let returned = take_redock();
         assert_eq!(returned.len(), 1);
-        assert_eq!(returned[0].id, "a");
+        assert_eq!(returned[0].0.id, "a");
+    }
+
+    /// A cross-window drop carries its claim (path + zone) with the panel, so the
+    /// receiving DockArea reproduces exactly what the indicator promised.
+    #[test]
+    fn a_dropped_panel_lands_where_the_indicator_showed() {
+        // Drop into an existing tab strip, at a specific index.
+        let mut root = DockNode::tabs(vec!["a", "b"]);
+        apply_placement(&mut root, &[], &DropZone::Tab(1), "x".into());
+        assert_eq!(ids(&root), vec!["a", "x", "b"]);
+
+        // Drop on an edge -> the target is wrapped in a split, panel on that side.
+        let mut root = DockNode::tabs(vec!["a"]);
+        apply_placement(&mut root, &[], &DropZone::Split(Side::Bottom), "y".into());
+        match &root {
+            DockNode::Split { axis, children, .. } => {
+                assert_eq!(*axis, DockAxis::Vertical);
+                assert_eq!(ids(&children[0]), vec!["a"]);
+                assert_eq!(ids(&children[1]), vec!["y"]);
+            }
+            _ => panic!("expected a split"),
+        }
     }
 
     fn ids(node: &DockNode) -> Vec<String> {

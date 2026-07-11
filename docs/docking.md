@@ -48,7 +48,7 @@ widget, different job.
 | **1** | Reusable `Popup` (extracted from `MenuBar`, with flip/clamp when there's no room) + right-click routing (`PointerButton::Secondary`) | ✅ **done** |
 | **2** | Dock model + `DockArea` in a single window: id tree, tab groups, drag-reorder, drag-to-split with drop indicators, persistence | DONE |
 | **3** | **Detach → floating window**, redock, and per-window command contexts | DONE |
-| **4** | **Live cross-window drag**: the torn-off window follows the cursor; other windows show drop indicators | todo |
+| **4** | **Live cross-window drag**: the torn-off window follows the cursor; other windows show drop indicators | DONE |
 
 ## Notes from Phase 0
 
@@ -130,9 +130,50 @@ So a floating panel window offers *Dock Panel Back* (Ctrl+D) and *Close This
 Panel Window*, which simply don't exist in the main window's palette. Commands
 that act on "this window" use `window::focused()`.
 
-## Phase 4 is the hard 20%
+## Notes from Phase 4 — live cross-window drag
 
-Live cross-window drag needs pointer capture across windows, a global cursor
-position, and hit-testing another window's drop zones — the platform-specific
-part. Phases 0–3 deliver the entire multi-monitor workflow via tear-off +
-indicator redock; Phase 4 is feel, not capability.
+The thing that makes this tractable is a platform detail worth writing down:
+
+> **While a mouse button is held, the window that received the press keeps an
+> implicit pointer grab.** It goes on receiving `CursorMoved` even after the
+> cursor leaves it — with out-of-bounds (possibly negative) coordinates.
+
+So there is no need to capture the pointer or poll a global cursor API. The
+window that started the drag is the **driver** for the whole gesture, and its
+local coordinates still describe where the cursor is; `window::to_screen`
+converts them to screen space using the window's client-area origin and DPI.
+
+**The gesture:**
+
+1. **Tear-off.** Dragging a tab out of the `DockArea` bounds calls `take_panel`
+   and opens a floating **carrier** window under the cursor. The dock keeps the
+   pointer grab, so it keeps driving: each move it updates the session's global
+   cursor and calls `window::set_position` on the carrier, which follows.
+2. **Claim.** Every *other* `DockArea` reads the session while painting. If the
+   global cursor is over it, it converts back to its own local coordinates
+   (`window::from_screen`), computes a drop target, **claims** it, and draws the
+   indicator. Repaints happen because each move marks the UI dirty.
+3. **Release.** The driver marks the session finished. The carrier sees this at
+   its next layout: if a claim exists it hands the owned `Panel` over *with the
+   claim*, and closes; the claiming `DockArea` reproduces exactly the placement
+   the indicator promised (`apply_placement`). With no claim, the window simply
+   stays where it was let go.
+
+Dragging a floating window's **header** runs the same machinery in reverse
+(carrier == driver), so a detached panel can be dragged back into the dock and
+dropped on an indicator.
+
+Two details worth keeping:
+
+- The claim is computed against the tree **after** tear-off pruning, so its path
+  is never stale by the time it is applied.
+- Moving the carrier under the cursor converges rather than running away, because
+  the window is positioned so the *grabbed point* stays under the pointer — after
+  the move the cursor reports ~the same local position again.
+
+### Not verified interactively
+
+The drag gesture cannot be exercised in this environment (no pointer injection),
+so the live feel — tracking latency, indicator flicker, multi-monitor edges — is
+untested by me. The pure logic (tree mutation, placement, ownership transfer) is
+unit-tested, and the app runs clean.
