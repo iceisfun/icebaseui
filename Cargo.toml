@@ -8,6 +8,7 @@ members = [
     "examples/counter",
     "examples/widgets",
     "examples/inspector",
+    "examples/dock",
 ]
 
 [workspace.package]
@@ -33,7 +34,7 @@ ab_glyph = "0.2"
 fontdb = "0.23"
 
 # Serialization (persistence)
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Clipboard (text editing)

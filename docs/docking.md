@@ -46,7 +46,7 @@ widget, different job.
 | --- | --- | --- |
 | **0** | **Multi-window `App`** — split `Renderer` into a shared `GpuContext` (device, queue, quad pipeline, glyph atlas) and a per-window `WindowRenderer` (surface, config, size, DPI). `window::open(WindowSpec)` request queue. Reactive change repaints **all** windows. | ✅ **done** |
 | **1** | Reusable `Popup` (extracted from `MenuBar`, with flip/clamp when there's no room) + right-click routing (`PointerButton::Secondary`) | ✅ **done** |
-| **2** | Dock model + `DockArea` in a single window: id tree, tab groups, drag-reorder, drag-to-split with drop indicators, persistence | todo |
+| **2** | Dock model + `DockArea` in a single window: id tree, tab groups, drag-reorder, drag-to-split with drop indicators, persistence | DONE |
 | **3** | **Detach → floating window** (tear-off creates the window immediately), redock via indicators | todo |
 | **4** | **Live cross-window drag**: the torn-off window follows the cursor; other windows show drop indicators | todo |
 
@@ -80,6 +80,29 @@ click point.
 
 Dock tabs will reuse it directly for their right-click menu (Close / Close Others
 / Detach) and for the overflow chevron.
+
+## Notes from Phase 2
+
+The id-tree bet paid off. Every mutation is a tree edit:
+
+- **reorder** within a strip: a vector move,
+- **regroup**: `remove_tab` + `insert_tab`,
+- **split**: `split_with` wraps the target node in a `Split`,
+- **close**: `retain_panels` + `prune`.
+
+**Mutation order matters.** Removing a tab can prune empty groups and collapse
+single-child splits, which invalidates paths. So a drop does: *remove without
+pruning* (paths stay valid) -> *insert/split at the target path* -> *normalize the
+whole tree once*. Getting this backwards is the classic docking bug.
+
+The recursive tree is flattened each layout into `GroupLayout`s (strip + content
+rect) and gutters; paint/event work on those flat lists and apply mutations back
+by path. Only the **active** panel of each group is laid out, painted, and sent
+events, so idle tabs cost nothing.
+
+Robustness: a persisted layout naming panels the app no longer registers is
+repaired (`drop_unknown`), and a panel registered but absent from the layout is
+adopted into the first group (`adopt_orphans`) rather than silently vanishing.
 
 ## Phase 4 is the hard 20%
 

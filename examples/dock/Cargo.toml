@@ -1,0 +1,10 @@
+[package]
+name = "dock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+baseui.workspace = true
+env_logger.workspace = true

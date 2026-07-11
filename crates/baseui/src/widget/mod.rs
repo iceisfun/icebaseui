@@ -22,6 +22,7 @@
 mod button;
 mod checkbox;
 mod combobox;
+mod dock;
 mod drag_value;
 mod hex_view;
 mod label;
@@ -41,6 +42,7 @@ mod tree;
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use combobox::ComboBox;
+pub use dock::{DockArea, DockAxis, DockNode, Panel};
 pub use drag_value::DragValue;
 pub use hex_view::HexView;
 pub use label::Label;
