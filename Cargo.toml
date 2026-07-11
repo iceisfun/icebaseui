@@ -5,6 +5,7 @@ members = [
     "crates/baseui",
     "examples/hello",
     "examples/counter",
+    "examples/widgets",
 ]
 
 [workspace.package]

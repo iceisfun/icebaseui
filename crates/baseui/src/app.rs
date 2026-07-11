@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use baseui_core::paint::Scene;
 use baseui_core::reactive;
-use baseui_core::{Point, Rect, Size};
+use baseui_core::{Point, Rect, Size, Vec2};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
@@ -320,6 +320,17 @@ impl ApplicationHandler for App {
                     };
                     self.dispatch(event);
                 }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // Normalize both delta kinds to approximate "lines".
+                let delta = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => Vec2::new(x, y),
+                    MouseScrollDelta::PixelDelta(p) => {
+                        Vec2::new(p.x as f32 / 16.0, p.y as f32 / 16.0)
+                    }
+                };
+                let pos = self.pointer;
+                self.dispatch(InputEvent::Scroll { pos, delta });
             }
             WindowEvent::RedrawRequested => {
                 self.redraw(event_loop);

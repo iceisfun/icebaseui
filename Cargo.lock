@@ -2379,6 +2379,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "widgets"
+version = "0.0.1"
+dependencies = [
+ "baseui",
+ "env_logger",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -6,7 +6,7 @@
 //! application-level *event bus* (SelectionChanged, DocumentOpened, …); this
 //! module is only about raw pointer/keyboard input routed to widgets.
 
-use baseui_core::Point;
+use baseui_core::{Point, Vec2};
 
 /// A pointer (mouse) button.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -27,4 +27,7 @@ pub enum InputEvent {
     PointerReleased { pos: Point, button: PointerButton },
     /// The pointer left the window.
     PointerLeft,
+    /// The scroll wheel moved. `delta` is in lines (positive `y` scrolls up /
+    /// toward the top); `pos` is the pointer position.
+    Scroll { pos: Point, delta: Vec2 },
 }

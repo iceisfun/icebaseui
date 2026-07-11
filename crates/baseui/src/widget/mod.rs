@@ -20,11 +20,19 @@
 //! [`Signal`]: baseui_core::Signal
 
 mod button;
+mod checkbox;
+mod drag_value;
+mod hex_view;
 mod label;
+mod slider;
 mod stack;
 
 pub use button::Button;
+pub use checkbox::Checkbox;
+pub use drag_value::DragValue;
+pub use hex_view::HexView;
 pub use label::Label;
+pub use slider::Slider;
 pub use stack::{Column, Row};
 
 use baseui_core::Size;

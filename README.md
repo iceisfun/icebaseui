@@ -33,13 +33,15 @@ baseui/
 │       ├── render       # wgpu backend: instanced-quad painter + glyph atlas
 │       ├── layout       # box Constraints
 │       ├── event        # normalized input events
-│       ├── widget       # Widget trait + Label, Button, Column, Row
+│       ├── widget       # Widget trait + Label, Button, Column, Row,
+│       │                #   Checkbox, Slider, DragValue, HexView
 │       └── app          # App shell + winit event loop + input routing
 ├── docs/
 │   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
 └── examples/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)
-    └── counter/         # widget + reactive-signal demo
+    ├── counter/         # widget + reactive-signal demo
+    └── widgets/         # control gallery starring HexView (colored bytes)
 ```
 
 Large optional systems will live in their own crates: `baseui-dock`,
@@ -74,8 +76,10 @@ cargo clippy --workspace
       (static + reactive) and `Button`, pointer input routing, and the
       reactive→repaint bridge (`set_on_change`). Monospace font + text
       measurement landed as rich-text prerequisites (see `docs/rich-text.md`).
-- [ ] **M4 — Core widgets:** Toggle, Checkbox, TextBox, Slider, DragValue,
-      ComboBox; Grid/Stack/Scroll containers.
+- [~] **M4 — Core widgets:** ✅ Checkbox, Slider, Blender-style DragValue, and a
+      **HexView** (monospace grid, per-byte class coloring, hover highlight,
+      wheel scroll, reactive ASCII toggle). Remaining: TextBox/ComboBox (need
+      keyboard focus) and Grid/Scroll containers.
 - [ ] **M5 — Flagship widgets:** TreeView and PropertyView (Blender-Outliner /
       Properties-editor grade).
 - [ ] **M6 — App frame:** menu bar, toolbar, panels, status bar, tabs.
