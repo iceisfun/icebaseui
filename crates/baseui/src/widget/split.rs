@@ -81,6 +81,7 @@ pub struct Split {
     gutter_rects: Vec<Rect>,
     hovered_gutter: Option<usize>,
     drag: Option<Drag>,
+    persist_key: Option<String>,
 }
 
 impl Split {
@@ -100,7 +101,14 @@ impl Split {
             gutter_rects: Vec::new(),
             hovered_gutter: None,
             drag: None,
+            persist_key: None,
         }
+    }
+
+    /// Persist this split's pane sizes under `key` between runs.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
+        self
     }
 
     /// A fixed-size, resizable pane with default min/max.
@@ -301,11 +309,45 @@ impl Widget for Split {
             pane.widget.event(cx, absolute(bounds, pane.rect), ev);
         }
     }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            let sizes: Vec<f32> = self
+                .panes
+                .iter()
+                .map(|p| match p.mode {
+                    Mode::Fixed(v) => v,
+                    Mode::Flex => 0.0,
+                })
+                .collect();
+            store.set(key.clone(), &sizes);
+        }
+        for pane in &self.panes {
+            pane.widget.persist_save(store);
+        }
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            if let Some(sizes) = store.get::<Vec<f32>>(key) {
+                for (i, pane) in self.panes.iter_mut().enumerate() {
+                    if let Mode::Fixed(_) = pane.mode {
+                        if let Some(v) = sizes.get(i) {
+                            pane.mode = Mode::Fixed(v.clamp(pane.min, pane.max));
+                        }
+                    }
+                }
+            }
+        }
+        for pane in &mut self.panes {
+            pane.widget.persist_restore(store);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Split;
+    use super::{Mode, Split};
     use crate::event::{InputEvent, PointerButton};
     use crate::layout::Constraints;
     use crate::text::Fonts;
@@ -388,5 +430,26 @@ mod tests {
         assert!((split.panes[1].rect.height() - 524.0).abs() < 0.5);
         // Cross axis fills the full width.
         assert_eq!(split.panes[1].rect.width(), 800.0);
+    }
+
+    #[test]
+    fn persist_roundtrips_pane_sizes() {
+        let mut store = crate::persist::Store::new();
+        let saved = Split::horizontal()
+            .persist("split.test")
+            .fixed(300.0, Null)
+            .flex(Null)
+            .fixed(200.0, Null);
+        saved.persist_save(&mut store);
+
+        // A fresh split with different sizes restores to the saved ones.
+        let mut restored = Split::horizontal()
+            .persist("split.test")
+            .fixed(120.0, Null)
+            .flex(Null)
+            .fixed(120.0, Null);
+        restored.persist_restore(&store);
+        assert!(matches!(restored.panes[0].mode, Mode::Fixed(v) if (v - 300.0).abs() < 0.01));
+        assert!(matches!(restored.panes[2].mode, Mode::Fixed(v) if (v - 200.0).abs() < 0.01));
     }
 }

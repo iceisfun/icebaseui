@@ -130,6 +130,18 @@ pub trait Widget {
         let _ = (cx, bounds, event);
     }
 
+    /// Write any persistable state into `store`. Containers should forward to
+    /// their children. Default: nothing to persist.
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        let _ = store;
+    }
+
+    /// Restore persistable state from `store` (called once before the first
+    /// layout). Containers should forward to their children. Default: no-op.
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        let _ = store;
+    }
+
     /// Box this widget — sugar for building trees.
     fn boxed(self) -> Box<dyn Widget>
     where

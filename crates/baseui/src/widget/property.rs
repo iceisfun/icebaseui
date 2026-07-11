@@ -79,6 +79,7 @@ pub struct PropertyView {
     /// Fraction of the width used by the label column.
     label_fraction: f32,
     hovered_header: Option<Id>,
+    persist_key: Option<String>,
 }
 
 impl PropertyView {
@@ -88,11 +89,18 @@ impl PropertyView {
             font_size: 13.0,
             label_fraction: 0.42,
             hovered_header: None,
+            persist_key: None,
         }
     }
 
     pub fn group(mut self, group: PropGroup) -> Self {
         self.groups.push(group);
+        self
+    }
+
+    /// Persist which groups are collapsed under `key` between runs.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
         self
     }
 }
@@ -230,6 +238,23 @@ impl Widget for PropertyView {
             }
             for row in &mut group.rows {
                 row.editor.event(cx, absolute(bounds, row.editor_rect), event);
+            }
+        }
+    }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            let collapsed: Vec<bool> = self.groups.iter().map(|g| g.collapsed).collect();
+            store.set(key.clone(), &collapsed);
+        }
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            if let Some(collapsed) = store.get::<Vec<bool>>(key) {
+                for (group, &c) in self.groups.iter_mut().zip(&collapsed) {
+                    group.collapsed = c;
+                }
             }
         }
     }

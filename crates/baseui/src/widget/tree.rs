@@ -154,6 +154,35 @@ fn actions_start_x(bounds: Rect, pad: f32, n: usize) -> f32 {
     bounds.right() - pad - n as f32 * ACTION_SLOT
 }
 
+/// The "/"-joined label path of a node under `prefix`.
+fn node_path(prefix: &str, label: &str) -> String {
+    if prefix.is_empty() {
+        label.to_string()
+    } else {
+        format!("{prefix}/{label}")
+    }
+}
+
+fn collect_expanded(nodes: &[TreeNode], prefix: &str, out: &mut Vec<String>) {
+    for node in nodes {
+        let path = node_path(prefix, &node.label);
+        if node.has_children() && node.expanded {
+            out.push(path.clone());
+        }
+        collect_expanded(&node.children, &path, out);
+    }
+}
+
+fn apply_expanded(nodes: &mut [TreeNode], prefix: &str, set: &std::collections::HashSet<String>) {
+    for node in nodes {
+        let path = node_path(prefix, &node.label);
+        if node.has_children() {
+            node.expanded = set.contains(&path);
+        }
+        apply_expanded(&mut node.children, &path, set);
+    }
+}
+
 /// Callback invoked with a node's label when it is selected.
 type SelectFn = Box<dyn FnMut(&str)>;
 
@@ -166,6 +195,7 @@ pub struct TreeView {
     font_size: f32,
     row_h: f32,
     rows: Vec<FlatRow>,
+    persist_key: Option<String>,
 }
 
 impl TreeView {
@@ -178,12 +208,19 @@ impl TreeView {
             font_size: 13.0,
             row_h: 22.0,
             rows: Vec::new(),
+            persist_key: None,
         }
     }
 
     /// Called with the label of a node when it becomes selected.
     pub fn on_select(mut self, f: impl FnMut(&str) + 'static) -> Self {
         self.on_select = Some(Box::new(f));
+        self
+    }
+
+    /// Persist which nodes are expanded (by label path) under `key`.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
         self
     }
 
@@ -359,6 +396,23 @@ impl Widget for TreeView {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            let mut expanded = Vec::new();
+            collect_expanded(&self.roots, "", &mut expanded);
+            store.set(key.clone(), &expanded);
+        }
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            if let Some(paths) = store.get::<Vec<String>>(key) {
+                let set: std::collections::HashSet<String> = paths.into_iter().collect();
+                apply_expanded(&mut self.roots, "", &set);
+            }
         }
     }
 }

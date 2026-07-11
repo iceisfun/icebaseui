@@ -27,9 +27,11 @@
 //! ```
 
 pub mod app;
+pub mod bus;
 pub mod command;
 pub mod event;
 pub mod focus;
+pub mod persist;
 pub mod icon;
 pub mod layout;
 pub mod render;

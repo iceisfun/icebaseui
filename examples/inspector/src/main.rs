@@ -16,6 +16,7 @@
 //! cargo run -p inspector
 //! ```
 
+use baseui::bus;
 use baseui::command::{self, CommandMeta};
 use baseui::icon::{gis, glyphs};
 use baseui::layout::Constraints;
@@ -28,6 +29,12 @@ use baseui::{App, Color, Icon, Point, Rect, Signal, Size};
 
 fn col(r: u8, g: u8, b: u8) -> Color {
     Color::rgb8(r, g, b)
+}
+
+/// An event-bus message: the outliner selection changed. Published by the tree,
+/// consumed by whoever cares — no direct reference between them.
+struct SelectionChanged {
+    name: String,
 }
 
 /// The flexible middle content panel; shows the selection and its live size.
@@ -103,6 +110,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_action = baseui::core::create_signal(String::from("Ready"));
     let grid_on = baseui::core::create_signal(true);
     let snap_on = baseui::core::create_signal(false);
+
+    // Event bus: react to selection changes without the tree and the
+    // viewport/status bar referencing each other directly.
+    bus::subscribe::<SelectionChanged>(move |e| {
+        selected.set(e.name.clone());
+        last_action.set(format!("Selected {}", e.name));
+    })
+    .leak();
 
     let blue = col(0x4d, 0x9c, 0xf5);
     let orange = col(0xe0, 0x8a, 0x3c);
@@ -189,7 +204,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .icon(gis::GLOBE)
     .icon_color(blue)])
-    .on_select(move |label| selected.set(label.to_string()));
+    .on_select(|label| bus::publish(&SelectionChanged { name: label.to_string() }))
+    .persist("tree.outliner");
 
     // --- Tabbed inspector -------------------------------------------------
     let location = [sig(0.0), sig(0.0), sig(0.0)];
@@ -205,7 +221,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 PropGroup::new("Camera")
                     .icon_color(green)
                     .row("FOV", DragValue::new(fov).range(1.0, 179.0).speed(0.25).decimals(1)),
-            ),
+            )
+            .persist("props.object"),
     );
     let (mr, mg, mb, rough) = (sig(0.8), sig(0.3), sig(0.2), sig(0.4));
     let material_tab = ScrollArea::new(
@@ -220,13 +237,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let inspector = TabView::new()
         .tab_icon(glyphs::GEAR, "Object", object_tab)
-        .tab("Material", material_tab);
+        .tab("Material", material_tab)
+        .persist("tabs.inspector");
 
     // --- Center split -----------------------------------------------------
     let center = Split::horizontal()
-        .fixed_range(260.0, 160.0, 420.0, ScrollArea::new(tree))
+        .fixed_range(260.0, 160.0, 420.0, ScrollArea::new(tree).persist("scroll.tree"))
         .flex(Viewport { selected })
-        .fixed_range(360.0, 260.0, 560.0, inspector);
+        .fixed_range(360.0, 260.0, 560.0, inspector)
+        .persist("split.center");
 
     // --- Status bar -------------------------------------------------------
     let status = StatusBar::new()
@@ -246,6 +265,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::new()
         .with_title("BaseUI — App Frame")
         .with_size(1200, 780)
+        .with_persistence(std::env::temp_dir().join("baseui-inspector-state.json"))
         .with_root(root)
         .run()
 }

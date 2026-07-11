@@ -35,6 +35,8 @@ baseui/
 │       ├── event        # normalized input events
 │       ├── icon         # Icon type + glyph icons + embedded font-gis pack
 │       ├── command      # command registry + shortcuts + Command Palette (F1)
+│       ├── bus          # typed event bus (subscribe/publish)
+│       ├── persist      # JSON UI-state store (layout persistence)
 │       ├── focus        # keyboard focus (thread-local)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
 │       │                #   Slider, DragValue, HexView, ScrollArea, TreeView,
@@ -96,11 +98,13 @@ cargo clippy --workspace
       fixed + flexible panes with drag gutters), and an `icon` system with the
       embedded **font-gis** pack (367 icons) rendered through the glyph atlas.
       See the `inspector` example (full app shell).
-- [~] **M7 — Systems:** ✅ command system (registry with id/title/category/
-      icon/color/shortcut + handler; run/all/search), shortcut manager
-      (chord→command), a searchable **Command Palette** (F1), and keyboard input
-      + focus. Plus event-capture (popups no longer leak clicks) and menu-item
-      icons/options + tree glyph icons. Remaining: event bus, persistence.
+- [x] **M7 — Systems:** command system (registry with id/title/category/icon/
+      color/shortcut + handler; run/all/search), shortcut manager
+      (chord→command), a searchable **Command Palette** (F1), keyboard input +
+      focus, a typed **event bus** (subscribe/publish/unsubscribe), and
+      **persistence** (JSON store: split sizes, active tab, group collapse, tree
+      expansion, scroll offset, window geometry — restored on launch, saved on
+      close). Plus event-capture, menu-item icons/options, and tree glyph icons.
 - [ ] **M8 — Extensibility:** plugin registration, icon packs, optional docking
       (`baseui-dock`), optional Lua (mlua) scripting.
 

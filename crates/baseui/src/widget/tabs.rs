@@ -30,6 +30,7 @@ pub struct TabView {
     font_size: f32,
     header_h: f32,
     content_rect: Rect,
+    persist_key: Option<String>,
 }
 
 impl TabView {
@@ -41,7 +42,14 @@ impl TabView {
             font_size: 13.0,
             header_h: 30.0,
             content_rect: Rect::ZERO,
+            persist_key: None,
         }
+    }
+
+    /// Persist the selected tab index under `key` between runs.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
+        self
     }
 
     /// Add a text tab.
@@ -202,6 +210,28 @@ impl Widget for TabView {
         let cr = absolute(bounds, self.content_rect);
         if let Some(tab) = self.tabs.get_mut(self.selected) {
             tab.content.event(cx, cr, event);
+        }
+    }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            store.set(key.clone(), &self.selected);
+        }
+        for tab in &self.tabs {
+            tab.content.persist_save(store);
+        }
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            if let Some(i) = store.get::<usize>(key) {
+                if i < self.tabs.len() {
+                    self.selected = i;
+                }
+            }
+        }
+        for tab in &mut self.tabs {
+            tab.content.persist_restore(store);
         }
     }
 }

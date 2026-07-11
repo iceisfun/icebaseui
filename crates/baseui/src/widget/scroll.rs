@@ -22,6 +22,7 @@ pub struct ScrollArea {
     offset: f32,
     width: Option<f32>,
     height: Option<f32>,
+    persist_key: Option<String>,
     /// Cached from the last layout.
     content_height: f32,
     viewport: Size,
@@ -34,9 +35,16 @@ impl ScrollArea {
             offset: 0.0,
             width: None,
             height: None,
+            persist_key: None,
             content_height: 0.0,
             viewport: Size::ZERO,
         }
+    }
+
+    /// Persist the scroll offset under `key` between runs.
+    pub fn persist(mut self, key: impl Into<String>) -> Self {
+        self.persist_key = Some(key.into());
+        self
     }
 
     /// Fix the viewport width (otherwise it fills the available width).
@@ -134,5 +142,21 @@ impl Widget for ScrollArea {
             self.child
                 .event(cx, self.child_bounds(bounds), &InputEvent::PointerLeft);
         }
+    }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            store.set(key.clone(), &self.offset);
+        }
+        self.child.persist_save(store);
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        if let Some(key) = &self.persist_key {
+            if let Some(offset) = store.get::<f32>(key) {
+                self.offset = offset.max(0.0);
+            }
+        }
+        self.child.persist_restore(store);
     }
 }

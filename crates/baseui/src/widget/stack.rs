@@ -90,6 +90,18 @@ impl Stack {
             child.event(cx, absolute(bounds, *rel), ev);
         }
     }
+
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        for child in &self.children {
+            child.persist_save(store);
+        }
+    }
+
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        for child in &mut self.children {
+            child.persist_restore(store);
+        }
+    }
 }
 
 /// A vertical stack of widgets, top to bottom.
@@ -141,6 +153,12 @@ impl Widget for Column {
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
         self.0.event(cx, bounds, event);
     }
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        self.0.persist_save(store);
+    }
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        self.0.persist_restore(store);
+    }
 }
 
 /// A horizontal stack of widgets, left to right.
@@ -187,5 +205,11 @@ impl Widget for Row {
     }
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
         self.0.event(cx, bounds, event);
+    }
+    fn persist_save(&self, store: &mut crate::persist::Store) {
+        self.0.persist_save(store);
+    }
+    fn persist_restore(&mut self, store: &crate::persist::Store) {
+        self.0.persist_restore(store);
     }
 }

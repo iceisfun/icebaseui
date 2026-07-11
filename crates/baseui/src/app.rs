@@ -77,6 +77,8 @@ pub struct App {
     pointer: Point,
     modifiers: Modifiers,
     palette: crate::command::CommandPalette,
+    persist_path: Option<std::path::PathBuf>,
+    store: crate::persist::Store,
     state: Option<WindowState>,
 }
 
@@ -99,8 +101,18 @@ impl App {
             pointer: Point::ZERO,
             modifiers: Modifiers::default(),
             palette: crate::command::CommandPalette::new(),
+            persist_path: None,
+            store: crate::persist::Store::new(),
             state: None,
         }
+    }
+
+    /// Persist and restore UI state (split sizes, active tabs, group collapse,
+    /// tree expansion, scroll offsets) and window geometry to `path` between
+    /// runs. Widgets opt in with their own `.persist("key")`.
+    pub fn with_persistence(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.persist_path = Some(path.into());
+        self
     }
 
     /// Set the window title.
@@ -170,6 +182,22 @@ impl App {
         if let Some(state) = self.state.as_ref() {
             state.window.request_redraw();
         }
+    }
+
+    /// Save widget state and window geometry to the persistence file, if enabled.
+    fn save_state(&mut self) {
+        if self.persist_path.is_none() {
+            return;
+        }
+        if let Some(root) = self.root.as_ref() {
+            root.persist_save(&mut self.store);
+        }
+        if let Some(state) = self.state.as_ref() {
+            let size = state.renderer.logical_size();
+            self.store.set("window.width", &(size.width as f64));
+            self.store.set("window.height", &(size.height as f64));
+        }
+        self.store.save();
     }
 
     /// Route a keyboard event: the open command palette first, then global
@@ -329,12 +357,25 @@ impl ApplicationHandler for App {
         }
         let fonts = self.fonts.clone().unwrap();
 
+        // Load persisted state (and window geometry) before creating the window.
+        if let Some(path) = &self.persist_path {
+            self.store = crate::persist::Store::load(path);
+        }
+        let mut win_w = self.config.width as f64;
+        let mut win_h = self.config.height as f64;
+        if let (Some(sw), Some(sh)) = (
+            self.store.get::<f64>("window.width"),
+            self.store.get::<f64>("window.height"),
+        ) {
+            if sw >= 200.0 && sh >= 150.0 {
+                win_w = sw;
+                win_h = sh;
+            }
+        }
+
         let attributes = Window::default_attributes()
             .with_title(self.config.title.clone())
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                self.config.width as f64,
-                self.config.height as f64,
-            ));
+            .with_inner_size(winit::dpi::LogicalSize::new(win_w, win_h));
 
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
@@ -357,6 +398,12 @@ impl ApplicationHandler for App {
 
         match Renderer::new(window.clone(), fonts) {
             Ok(renderer) => {
+                // Restore persisted widget state before the first layout.
+                if self.persist_path.is_some() {
+                    if let Some(root) = self.root.as_mut() {
+                        root.persist_restore(&self.store);
+                    }
+                }
                 window.request_redraw();
                 self.state = Some(WindowState { window, renderer });
             }
@@ -384,6 +431,7 @@ impl ApplicationHandler for App {
 
         match event {
             WindowEvent::CloseRequested => {
+                self.save_state();
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
