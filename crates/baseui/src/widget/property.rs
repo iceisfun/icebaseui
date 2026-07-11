@@ -207,6 +207,25 @@ impl Widget for PropertyView {
     }
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        // Editors FIRST. An editor may own a popup drawn in the overlay layer
+        // (e.g. an open ComboBox list) that floats over the group headers below
+        // it; it must get the chance to consume the event before this view
+        // interprets the same click as a header (collapse) click underneath.
+        for group in &mut self.groups {
+            if group.collapsed {
+                continue;
+            }
+            for row in &mut group.rows {
+                let ev = cx.effective(event);
+                row.editor.event(cx, absolute(bounds, row.editor_rect), ev);
+            }
+        }
+
+        if cx.is_consumed() {
+            self.hovered_header = None;
+            return;
+        }
+
         // Header hover + collapse toggling.
         match event {
             InputEvent::PointerMoved { pos } => {
@@ -224,21 +243,12 @@ impl Widget for PropertyView {
                 for group in &mut self.groups {
                     if absolute(bounds, group.header_rect).contains(*pos) {
                         group.collapsed = !group.collapsed;
+                        cx.consume();
                         return;
                     }
                 }
             }
             _ => {}
-        }
-
-        // Route events to editors of expanded groups.
-        for group in &mut self.groups {
-            if group.collapsed {
-                continue;
-            }
-            for row in &mut group.rows {
-                row.editor.event(cx, absolute(bounds, row.editor_rect), event);
-            }
         }
     }
 
@@ -263,10 +273,74 @@ impl Widget for PropertyView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::{InputEvent, PointerButton};
     use crate::text::Fonts;
     use crate::theme::Theme;
-    use crate::widget::DragValue;
+    use crate::widget::{ComboBox, DragValue};
     use baseui_core::create_signal;
+
+    /// Regression: with a ComboBox list open, clicking an item in the popup must
+    /// not also toggle the property group header the popup floats over.
+    #[test]
+    fn combobox_popup_click_does_not_toggle_group_beneath_it() {
+        let Some(fonts) = Fonts::load() else {
+            return;
+        };
+        let theme = Theme::dark();
+        let mode = create_signal(2usize);
+        let x = create_signal(0.0f32);
+        let mut pv = PropertyView::new()
+            .group(PropGroup::new("Object").row(
+                "Mode",
+                ComboBox::new(mode, ["XYZ Euler", "XZY Euler", "YXZ Euler"]),
+            ))
+            .group(PropGroup::new("Location").row("X", DragValue::new(x)));
+
+        let mut lcx = LayoutCx {
+            fonts: &fonts,
+            theme: &theme,
+        };
+        let size = pv.layout(&mut lcx, Constraints::loose(Size::new(320.0, f32::INFINITY)));
+        let bounds = Rect::new(Point::ZERO, size);
+
+        let combo = absolute(bounds, pv.groups[0].rows[0].editor_rect);
+        let header = absolute(bounds, pv.groups[1].header_rect);
+        assert!(!pv.groups[1].collapsed);
+
+        // Open the list.
+        let mut cx = EventCx::new(&fonts, &theme);
+        pv.event(
+            &mut cx,
+            bounds,
+            &InputEvent::PointerPressed {
+                pos: combo.center(),
+                button: PointerButton::Primary,
+            },
+        );
+
+        // A point that lies inside BOTH the open popup and the "Location" header
+        // beneath it — i.e. exactly the click that used to fall through.
+        let pos = Point::new(combo.center().x, header.center().y);
+        assert!(header.contains(pos), "test point must be over the header");
+        assert!(pos.y > combo.bottom(), "test point must be inside the popup");
+
+        let mut cx = EventCx::new(&fonts, &theme);
+        pv.event(
+            &mut cx,
+            bounds,
+            &InputEvent::PointerPressed {
+                pos,
+                button: PointerButton::Primary,
+            },
+        );
+
+        // The popup consumed the click: the group did NOT collapse.
+        assert!(
+            !pv.groups[1].collapsed,
+            "click on the combo popup fell through and toggled the group header"
+        );
+        assert!(cx.is_consumed());
+    }
 
     #[test]
     fn collapsing_a_group_shrinks_height() {

@@ -271,6 +271,18 @@ impl Widget for TabView {
     }
 
     fn event(&mut self, cx: &mut EventCx<'_>, bounds: Rect, event: &InputEvent) {
+        // Content FIRST: it may own a popup (overlay layer) floating over the tab
+        // strip, which must consume the event before we read it as a tab click.
+        let cr = absolute(bounds, self.content_rect);
+        if let Some(tab) = self.tabs.get_mut(self.selected) {
+            tab.content.event(cx, cr, event);
+        }
+
+        if cx.is_consumed() {
+            self.hovered = None;
+            return;
+        }
+
         match event {
             InputEvent::PointerMoved { pos } => {
                 self.hovered = self
@@ -290,16 +302,9 @@ impl Widget for TabView {
                 {
                     self.selected = i;
                     cx.consume();
-                    return;
                 }
             }
             _ => {}
-        }
-
-        // Forward to the selected content.
-        let cr = absolute(bounds, self.content_rect);
-        if let Some(tab) = self.tabs.get_mut(self.selected) {
-            tab.content.event(cx, cr, event);
         }
     }
 

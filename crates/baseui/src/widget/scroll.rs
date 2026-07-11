@@ -128,11 +128,15 @@ impl Widget for ScrollArea {
         }
         // Route pointer events to the child at its scrolled position, but only
         // when the pointer is over the viewport (so clipped-away rows can't be
-        // hit).
+        // hit). Exception: while a popup is open, always deliver — a child's
+        // popup (drawn in the overlay layer) may extend beyond the viewport and
+        // still needs its clicks.
         let deliver = match event {
             InputEvent::PointerMoved { pos }
             | InputEvent::PointerPressed { pos, .. }
-            | InputEvent::PointerReleased { pos, .. } => bounds.contains(*pos),
+            | InputEvent::PointerReleased { pos, .. } => {
+                bounds.contains(*pos) || crate::popup::is_open()
+            }
             _ => true,
         };
         if deliver {
