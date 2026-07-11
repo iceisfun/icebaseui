@@ -22,4 +22,5 @@ ab_glyph.workspace = true
 fontdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+arboard.workspace = true
 log.workspace = true

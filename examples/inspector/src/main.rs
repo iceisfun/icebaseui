@@ -22,8 +22,9 @@ use baseui::icon::{gis, glyphs};
 use baseui::layout::Constraints;
 use baseui::paint::Scene;
 use baseui::widget::{
-    DragValue, LayoutCx, Menu, MenuBar, PaintCx, PropGroup, PropertyView, ScrollArea, Slider,
-    Split, StatusBar, StatusItem, TabView, Toolbar, TreeNode, TreeView, Widget,
+    Column, ComboBox, DragValue, LayoutCx, Menu, MenuBar, PaintCx, PropGroup, PropertyView,
+    ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar, TreeNode, TreeView,
+    Widget,
 };
 use baseui::{App, Color, Icon, Point, Rect, Signal, Size};
 
@@ -212,8 +213,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rotation = [sig(0.0), sig(0.0), sig(0.0)];
     let scale = [sig(1.0), sig(1.0), sig(1.0)];
     let fov = sig(50.0);
+    let name = baseui::core::create_signal(String::from("Cube"));
+    let mode = baseui::core::create_signal(0usize);
+    let passcode = baseui::core::create_signal(String::new());
     let object_tab = ScrollArea::new(
         PropertyView::new()
+            .group(
+                PropGroup::new("Object")
+                    .icon_color(blue)
+                    .row("Name", TextBox::new(name).placeholder("Object name"))
+                    .row(
+                        "Mode",
+                        ComboBox::new(
+                            mode,
+                            [
+                                "XYZ Euler",
+                                "XZY Euler",
+                                "YXZ Euler",
+                                "Quaternion (WXYZ)",
+                                "Axis Angle",
+                            ],
+                        ),
+                    )
+                    .row("Passcode", TextBox::new(passcode).password().placeholder("••••")),
+            )
             .group(xyz("Location", orange, location, 0.01))
             .group(xyz("Rotation", purple, rotation, 0.5))
             .group(xyz("Scale", green, scale, 0.01))
@@ -240,9 +263,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tab("Material", material_tab)
         .persist("tabs.inspector");
 
+    // --- Outliner pane: search box above the scrolling tree ---------------
+    let search = baseui::core::create_signal(String::new());
+    let tree_pane = Split::vertical()
+        .gutter(0.0)
+        .fixed_range(
+            38.0,
+            38.0,
+            38.0,
+            Column::new()
+                .padding(baseui::Insets::symmetric(6.0, 5.0))
+                .child(TextBox::new(search).placeholder("Search…")),
+        )
+        .flex(ScrollArea::new(tree).persist("scroll.tree"));
+
     // --- Center split -----------------------------------------------------
     let center = Split::horizontal()
-        .fixed_range(260.0, 160.0, 420.0, ScrollArea::new(tree).persist("scroll.tree"))
+        .fixed_range(260.0, 160.0, 420.0, tree_pane)
         .flex(Viewport { selected })
         .fixed_range(360.0, 260.0, 560.0, inspector)
         .persist("split.center");

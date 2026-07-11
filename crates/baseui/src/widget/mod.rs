@@ -21,6 +21,7 @@
 
 mod button;
 mod checkbox;
+mod combobox;
 mod drag_value;
 mod hex_view;
 mod label;
@@ -32,11 +33,13 @@ mod split;
 mod stack;
 mod statusbar;
 mod tabs;
+mod textbox;
 mod toolbar;
 mod tree;
 
 pub use button::Button;
 pub use checkbox::Checkbox;
+pub use combobox::ComboBox;
 pub use drag_value::DragValue;
 pub use hex_view::HexView;
 pub use label::Label;
@@ -48,6 +51,7 @@ pub use split::Split;
 pub use stack::{Column, Row};
 pub use statusbar::{StatusBar, StatusItem};
 pub use tabs::TabView;
+pub use textbox::TextBox;
 pub use toolbar::Toolbar;
 pub use tree::{TreeNode, TreeView};
 

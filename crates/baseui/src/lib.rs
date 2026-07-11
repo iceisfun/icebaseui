@@ -28,12 +28,14 @@
 
 pub mod app;
 pub mod bus;
+pub mod clipboard;
 pub mod command;
 pub mod event;
 pub mod focus;
-pub mod persist;
 pub mod icon;
 pub mod layout;
+pub mod persist;
+pub mod popup;
 pub mod render;
 pub mod text;
 pub mod theme;
@@ -43,9 +45,9 @@ pub use app::{App, Frame, WindowConfig};
 pub use icon::Icon;
 pub use theme::Theme;
 pub use widget::{
-    Button, Checkbox, Column, DragValue, HexView, Label, Menu, MenuBar, PropGroup, PropertyView,
-    Row, ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, Toolbar, TreeNode, TreeView,
-    Widget,
+    Button, Checkbox, ComboBox, Column, DragValue, HexView, Label, Menu, MenuBar, PropGroup,
+    PropertyView, Row, ScrollArea, Slider, Split, StatusBar, StatusItem, TabView, TextBox, Toolbar,
+    TreeNode, TreeView, Widget,
 };
 
 // Re-export the dependency-free core so downstream code has one import root.

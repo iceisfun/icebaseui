@@ -10,7 +10,7 @@ use baseui_core::paint::{RectShape, Scene};
 use baseui_core::{Insets, Point, Rect, Size};
 
 use super::{EventCx, LayoutCx, PaintCx, Widget};
-use crate::event::{InputEvent, PointerButton};
+use crate::event::{InputEvent, Key, PointerButton};
 use crate::icon::{Icon, glyphs};
 use crate::layout::Constraints;
 use crate::text::FontId;
@@ -129,6 +129,21 @@ impl MenuBar {
     pub fn menu(mut self, menu: Menu) -> Self {
         self.menus.push(menu);
         self
+    }
+
+    /// Open menu `i`. An open menu is modal for the keyboard: it clears focus so
+    /// a focused text field stops receiving keystrokes behind it.
+    fn open_menu(&mut self, index: usize) {
+        self.open = Some(index);
+        self.hovered_item = None;
+        crate::popup::set_open(true);
+    }
+
+    fn close_menu(&mut self) {
+        if self.open.take().is_some() {
+            self.hovered_item = None;
+            crate::popup::set_open(false);
+        }
     }
 
     /// Geometry of the open dropdown: (panel rect, per-entry rects). Entry rects
@@ -323,7 +338,11 @@ impl Widget for MenuBar {
                     .iter()
                     .position(|r| super::absolute(bounds, *r).contains(*pos))
                 {
-                    self.open = if self.open == Some(i) { None } else { Some(i) };
+                    if self.open == Some(i) {
+                        self.close_menu();
+                    } else {
+                        self.open_menu(i);
+                    }
                     cx.consume();
                     return;
                 }
@@ -352,7 +371,18 @@ impl Widget for MenuBar {
                     if panel.contains(*pos) || hit.is_some() {
                         cx.consume();
                     }
-                    self.open = None; // click on item or outside both dismiss
+                    self.close_menu(); // click on item or outside both dismiss
+                }
+            }
+            // Escape closes an open menu (it is modal for the keyboard).
+            InputEvent::Key {
+                key: Key::Escape,
+                pressed: true,
+                ..
+            } => {
+                if self.open.is_some() {
+                    self.close_menu();
+                    cx.consume();
                 }
             }
             _ => {}

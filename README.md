@@ -38,13 +38,15 @@ baseui/
 │       ├── bus          # typed event bus (subscribe/publish)
 │       ├── persist      # JSON UI-state store (layout persistence)
 │       ├── focus        # keyboard focus (thread-local)
+│       ├── clipboard    # system clipboard (text)
 │       ├── widget       # Widget trait + Label, Button, Column, Row, Checkbox,
-│       │                #   Slider, DragValue, HexView, ScrollArea, TreeView,
-│       │                #   PropertyView, TabView, Split, MenuBar, Toolbar,
-│       │                #   StatusBar
+│       │                #   Slider, DragValue, TextBox, ComboBox, HexView,
+│       │                #   ScrollArea, TreeView, PropertyView, TabView, Split,
+│       │                #   MenuBar, Toolbar, StatusBar
 │       └── app          # App shell + winit loop + pointer/keyboard routing
 ├── docs/
-│   └── rich-text.md     # plan for styled runs, hex editor, squiggle underlines
+│   ├── rich-text.md     # styled runs, hex editor, squiggle underlines
+│   └── document-tabs.md # planned VS Code-style tabs for the content area
 └── examples/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)
     ├── counter/         # widget + reactive-signal demo
@@ -84,10 +86,11 @@ cargo clippy --workspace
       (static + reactive) and `Button`, pointer input routing, and the
       reactive→repaint bridge (`set_on_change`). Monospace font + text
       measurement landed as rich-text prerequisites (see `docs/rich-text.md`).
-- [~] **M4 — Core widgets:** ✅ Checkbox, Slider, Blender-style DragValue, and a
-      **HexView** (monospace grid, per-byte class coloring, hover highlight,
-      wheel scroll, reactive ASCII toggle). Remaining: TextBox/ComboBox (need
-      keyboard focus) and Grid/Scroll containers.
+- [x] **M4 — Core widgets:** Checkbox, Slider, Blender-style DragValue, a
+      **HexView** (monospace grid, per-byte class coloring, hover, wheel scroll,
+      reactive ASCII toggle), and — once keyboard/focus landed in M7 — an
+      editable **TextBox** (caret, selection, clipboard, password) and
+      **ComboBox**. `ScrollArea` landed in M5; a `Grid` container is still open.
 - [x] **M5 — Flagship widgets:** `ScrollArea`, `TreeView` (expand/collapse,
       colored type icons, selection, hover), and `PropertyView` (collapsible
       groups with colored section icons; rows embed real editor widgets). See

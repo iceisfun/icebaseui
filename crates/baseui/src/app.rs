@@ -224,10 +224,20 @@ impl App {
                     self.request_redraw();
                     return;
                 }
-                if let Some(id) = crate::command::command_for_chord(&chord) {
-                    crate::command::run(&id);
-                    self.request_redraw();
-                    return;
+                // When a widget holds keyboard focus (e.g. a text field), plain
+                // keys must reach it — only modified chords (Ctrl/Alt/Meta) still
+                // fire global shortcuts, so typing "s" inserts but Ctrl+S saves.
+                // An open popup (menu / combo list) is modal: it suppresses all
+                // shortcuts, but keys still reach the tree so Escape can close it.
+                let focused = crate::focus::current().is_some();
+                let modified = self.modifiers.ctrl || self.modifiers.alt || self.modifiers.meta;
+                let popup = crate::popup::is_open();
+                if !popup && (!focused || modified) {
+                    if let Some(id) = crate::command::command_for_chord(&chord) {
+                        crate::command::run(&id);
+                        self.request_redraw();
+                        return;
+                    }
                 }
             }
         }
