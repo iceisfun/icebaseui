@@ -31,7 +31,7 @@ mod scroll;
 mod slider;
 mod split;
 mod stack;
-mod statusbar;
+pub mod statusbar;
 mod tabs;
 mod textbox;
 mod toolbar;

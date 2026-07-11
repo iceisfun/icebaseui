@@ -87,6 +87,50 @@ pub fn unsubscribe(id: SubscriptionId) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Named (dynamically-typed) events
+// ---------------------------------------------------------------------------
+
+/// A **named** event with a dynamically-typed payload.
+///
+/// The typed channel above keys on Rust `TypeId`, which scripts and plugins
+/// cannot name. This is the channel they use instead: events are addressed by
+/// string, with a JSON payload. It rides on the same bus (it is just another
+/// event type), so Rust and Lua subscribers see the same traffic.
+pub struct NamedEvent {
+    pub name: String,
+    pub payload: serde_json::Value,
+}
+
+/// Publish a named event with a JSON payload.
+///
+/// ```
+/// use baseui::bus;
+/// use serde_json::json;
+///
+/// let sub = bus::on_named("selection.changed", |payload| {
+///     assert_eq!(payload["name"], "Cube");
+/// });
+/// bus::publish_named("selection.changed", json!({ "name": "Cube" }));
+/// drop(sub);
+/// ```
+pub fn publish_named(name: &str, payload: serde_json::Value) {
+    publish(&NamedEvent {
+        name: name.to_string(),
+        payload,
+    });
+}
+
+/// Subscribe to a named event. The handler only fires for matching names.
+pub fn on_named(name: &str, handler: impl Fn(&serde_json::Value) + 'static) -> Subscription {
+    let wanted = name.to_string();
+    subscribe::<NamedEvent>(move |event| {
+        if event.name == wanted {
+            handler(&event.payload);
+        }
+    })
+}
+
 /// An RAII handle to a subscription; unsubscribes on drop.
 #[must_use = "dropping the Subscription immediately unsubscribes; bind it or call leak()"]
 pub struct Subscription {
@@ -134,6 +178,22 @@ mod tests {
         drop(sub);
         publish(&Ping(100));
         assert_eq!(total.get(), 7);
+    }
+
+    #[test]
+    fn named_events_filter_by_name() {
+        let hits = Rc::new(Cell::new(0));
+        let h2 = hits.clone();
+        let _sub = super::on_named("sel.changed", move |p| {
+            assert_eq!(p["name"], "Cube");
+            h2.set(h2.get() + 1);
+        });
+
+        super::publish_named("other.event", serde_json::json!({ "name": "Nope" }));
+        assert_eq!(hits.get(), 0, "a different name must not fire the handler");
+
+        super::publish_named("sel.changed", serde_json::json!({ "name": "Cube" }));
+        assert_eq!(hits.get(), 1);
     }
 
     #[test]

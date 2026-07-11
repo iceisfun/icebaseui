@@ -57,6 +57,40 @@ impl Icon {
     }
 }
 
+/// Resolve an icon from a string spec — how config files and scripts name icons.
+///
+/// Accepted forms:
+/// - `"gis:compass"` — a [`gis`] pack icon by name (requires `icons-gis`).
+/// - `"glyph:star"` — a built-in [`glyphs`] icon by name.
+/// - `"★"` — any single character, used directly as a UI-font glyph.
+///
+/// ```
+/// use baseui::icon;
+/// assert!(icon::parse("glyph:star").is_some());
+/// assert!(icon::parse("★").is_some());
+/// assert!(icon::parse("nope:nope").is_none());
+/// ```
+pub fn parse(spec: &str) -> Option<Icon> {
+    if let Some(name) = spec.strip_prefix("gis:") {
+        #[cfg(feature = "icons-gis")]
+        return gis::by_name(name);
+        #[cfg(not(feature = "icons-gis"))]
+        {
+            let _ = name;
+            return None;
+        }
+    }
+    if let Some(name) = spec.strip_prefix("glyph:") {
+        return glyphs::by_name(name);
+    }
+    // A bare single character is taken as a UI-font glyph.
+    let mut chars = spec.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Some(Icon::glyph(c)),
+        _ => None,
+    }
+}
+
 /// Byte blobs for the embedded icon fonts, in `FontId::Icon(n)` index order.
 /// [`Fonts::load`](crate::text::Fonts::load) registers these at startup.
 #[allow(clippy::vec_init_then_push)] // the push is cfg-gated; vec![] doesn't fit
@@ -100,4 +134,25 @@ pub mod glyphs {
     pub const CHEVRON_RIGHT: Icon = Icon::glyph('\u{25B8}');
     /// Down-pointing triangle — expanded disclosure (▾).
     pub const CHEVRON_DOWN: Icon = Icon::glyph('\u{25BE}');
+
+    /// Resolve a built-in glyph icon by name (used by [`parse`](super::parse)).
+    pub fn by_name(name: &str) -> Option<Icon> {
+        Some(match name {
+            "eye" => EYE,
+            "circle" => CIRCLE,
+            "circle-outline" => CIRCLE_OUTLINE,
+            "star" => STAR,
+            "star-outline" => STAR_OUTLINE,
+            "diamond" => DIAMOND,
+            "square" => SQUARE,
+            "gear" => GEAR,
+            "warning" => WARNING,
+            "check" => CHECK,
+            "cross" => CROSS,
+            "dot" => DOT,
+            "chevron-right" => CHEVRON_RIGHT,
+            "chevron-down" => CHEVRON_DOWN,
+            _ => return None,
+        })
+    }
 }

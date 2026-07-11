@@ -5,6 +5,8 @@
 //! `Git main`). Reactive items recompute their text each frame, so a signal
 //! change updates the status line.
 
+use std::cell::RefCell;
+
 use baseui_core::paint::Scene;
 use baseui_core::{Color, Point, Rect, Size};
 
@@ -12,6 +14,20 @@ use super::{LayoutCx, PaintCx, Widget};
 use crate::icon::Icon;
 use crate::layout::Constraints;
 use crate::text::FontId;
+
+thread_local! {
+    /// Items contributed by plugins/scripts, merged in by every [`StatusBar`].
+    static CONTRIBUTED: RefCell<Vec<StatusItem>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Contribute a status item from a plugin or script.
+///
+/// Applications build their own items with [`StatusBar::item`]; plugins and Lua
+/// scripts call this instead, and every `StatusBar` renders them alongside its
+/// own (SOW: "Applications and plugins may contribute independent status items").
+pub fn contribute(item: StatusItem) {
+    CONTRIBUTED.with(|c| c.borrow_mut().push(item));
+}
 
 enum Text {
     Static(String),
@@ -136,15 +152,33 @@ impl Widget for StatusBar {
         // Resolve widths up front (dynamic text needs &mut).
         let mut resolved: Vec<(String, Option<Icon>, Color, Side, f32)> =
             Vec::with_capacity(self.items.len());
+        let resolve_into =
+            |item: &mut StatusItem, out: &mut Vec<(String, Option<Icon>, Color, Side, f32)>| {
+                let s = item.resolve();
+                let color = item.color.unwrap_or(p.text_muted);
+                let mut w = cx.fonts.measure(&s, self.font_size, FontId::Ui).width;
+                if let Some(icon) = item.icon {
+                    w +=
+                        cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + icon_gap;
+                }
+                out.push((s, item.icon, color, item.side, w));
+            };
+
         for item in &mut self.items {
-            let s = item.resolve();
-            let color = item.color.unwrap_or(p.text_muted);
-            let mut w = cx.fonts.measure(&s, self.font_size, FontId::Ui).width;
-            if let Some(icon) = item.icon {
-                w += cx.fonts.char_advance(icon.ch(), self.font_size, icon.font_id()) + icon_gap;
-            }
-            resolved.push((s, item.icon, color, item.side, w));
+            resolve_into(item, &mut resolved);
         }
+
+        // Plugin/script contributions. Taken out while resolving (a dynamic item
+        // could call `contribute` re-entrantly), then merged back.
+        let mut contributed = CONTRIBUTED.with(|c| std::mem::take(&mut *c.borrow_mut()));
+        for item in &mut contributed {
+            resolve_into(item, &mut resolved);
+        }
+        CONTRIBUTED.with(|c| {
+            let mut slot = c.borrow_mut();
+            contributed.append(&mut slot);
+            *slot = contributed;
+        });
 
         for (s, icon, color, side, w) in resolved {
             let x0 = match side {

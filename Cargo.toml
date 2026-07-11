@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/baseui-core",
     "crates/baseui",
+    "crates/baseui-lua",
     "examples/hello",
     "examples/counter",
     "examples/widgets",
@@ -19,6 +20,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 baseui-core = { path = "crates/baseui-core" }
 baseui = { path = "crates/baseui" }
+baseui-lua = { path = "crates/baseui-lua" }
 
 # Rendering / windowing backend (chosen: winit + wgpu)
 winit = "0.30"
@@ -36,6 +38,9 @@ serde_json = "1"
 
 # Clipboard (text editing)
 arboard = "3"
+
+# Optional Lua scripting (baseui-lua)
+mlua = "0.10"
 
 # Utilities
 log = "0.4"

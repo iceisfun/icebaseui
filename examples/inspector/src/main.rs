@@ -107,6 +107,20 @@ fn cmd(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
+    // Load Lua plugins BEFORE building the UI, so their commands, shortcuts and
+    // status items exist by the time the tree is assembled.
+    match baseui_lua::LuaEngine::new() {
+        Ok(engine) => {
+            let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/plugins");
+            let n = engine.load_dir(dir);
+            log::info!("loaded {n} lua plugin(s)");
+            // Keep the engine alive for the process; its commands/handlers hold
+            // Lua functions.
+            std::mem::forget(engine);
+        }
+        Err(e) => log::error!("lua init failed: {e}"),
+    }
+
     let selected = baseui::core::create_signal(String::from("Cube"));
     let last_action = baseui::core::create_signal(String::from("Ready"));
     let grid_on = baseui::core::create_signal(true);
@@ -244,7 +258,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .icon(gis::GLOBE)
     .icon_color(blue)])
-    .on_select(|label| bus::publish(&SelectionChanged { name: label.to_string() }))
+    .on_select(|label| {
+        // Typed event for Rust subscribers...
+        bus::publish(&SelectionChanged { name: label.to_string() });
+        // ...and the named channel, which scripts subscribe to.
+        bus::publish_named("selection.changed", serde_json::json!({ "name": label }));
+    })
     .persist("tree.outliner");
 
     // --- Tabbed inspector -------------------------------------------------

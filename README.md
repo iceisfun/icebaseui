@@ -29,6 +29,7 @@ baseui/
 │   │   ├── color        # RGBA Color + hex parsing + sRGB->linear
 │   │   ├── id           # process-unique Ids
 │   │   └── reactive     # signals, memos, effects (the reactive runtime)
+│   ├── baseui-lua/      # OPTIONAL Lua scripting (commands/events/status glue)
 │   └── baseui/          # the framework crate (winit + wgpu)
 │       ├── theme        # design tokens: palette, spacing, radius, type, motion
 │       ├── text         # fonts (UI + mono), measurement, global text scale
@@ -49,7 +50,8 @@ baseui/
 │       └── app          # App shell + winit loop + pointer/keyboard routing
 ├── docs/
 │   ├── rich-text.md     # styled runs, hex editor, squiggle underlines
-│   └── document-tabs.md # planned VS Code-style tabs for the content area
+│   ├── document-tabs.md # planned VS Code-style tabs for the content area
+│   └── scripting.md     # Lua scope: composition/glue, NOT widget authoring
 └── examples/
     ├── hello/           # painter demo (raw Scene: rects, text, clipping)
     ├── counter/         # widget + reactive-signal demo
@@ -111,8 +113,12 @@ cargo clippy --workspace
       **persistence** (JSON store: split sizes, active tab, group collapse, tree
       expansion, scroll offset, window geometry — restored on launch, saved on
       close). Plus event-capture, menu-item icons/options, and tree glyph icons.
-- [ ] **M8 — Extensibility:** plugin registration, icon packs, optional docking
-      (`baseui-dock`), optional Lua (mlua) scripting.
+- [~] **M8 — Extensibility:** ✅ optional **Lua scripting** (`baseui-lua`):
+      scripts register commands (icon/color/category/shortcut), bind shortcuts,
+      publish/handle named events, and contribute status items — appearing in the
+      Command Palette like native commands. The `Widget` trait is deliberately
+      **not** exposed; see `docs/scripting.md`. Remaining: declarative Lua panels,
+      a Rust plugin-registration API, and optional docking (`baseui-dock`).
 
 ## License
 
