@@ -16,6 +16,7 @@
 //! cargo run -p dock
 //! ```
 
+use baseui::command::{self, CommandMeta};
 use baseui::icon::{gis, glyphs};
 use baseui::layout::Constraints;
 use baseui::paint::Scene;
@@ -168,9 +169,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .persist("dock.layout");
 
+    // --- Global commands (the main window's palette; the dock registers its own
+    //     panel-scoped ones, which only appear in a detached panel window) -----
+    command::register(
+        CommandMeta::new("view.text.inc", "Increase Text Size")
+            .category("View")
+            .icon(glyphs::CIRCLE)
+            .color(blue)
+            .shortcut("Ctrl+="),
+        || baseui::text::set_scale(baseui::text::scale() + 0.1),
+    );
+    command::register(
+        CommandMeta::new("view.text.dec", "Decrease Text Size")
+            .category("View")
+            .icon(glyphs::CIRCLE_OUTLINE)
+            .color(blue)
+            .shortcut("Ctrl+-"),
+        || baseui::text::set_scale(baseui::text::scale() - 0.1),
+    );
+    command::register(
+        CommandMeta::new("view.text.reset", "Reset Text Size")
+            .category("View")
+            .icon(glyphs::DOT)
+            .color(blue)
+            .shortcut("Ctrl+0"),
+        || baseui::text::set_scale(1.0),
+    );
+
     // --- App frame around the dock ----------------------------------------
     let menubar = MenuBar::new()
         .menu(Menu::new("File").item("Quit", || {}))
+        .menu(
+            Menu::new("View")
+                .item_icon(glyphs::CIRCLE, "Increase Text Size", || {
+                    command::run("view.text.inc")
+                })
+                .item_icon(glyphs::CIRCLE_OUTLINE, "Decrease Text Size", || {
+                    command::run("view.text.dec")
+                })
+                .item_icon(glyphs::DOT, "Reset Text Size", || {
+                    command::run("view.text.reset")
+                }),
+        )
         .menu(Menu::new("Help").item("Drag a tab to reorder / split", || {}));
 
     let status = StatusBar::new()

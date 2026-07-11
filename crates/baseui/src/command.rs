@@ -409,7 +409,15 @@ impl CommandPalette {
         let box_h = line_h + 20.0;
         let row_h = line_h + 12.0;
         let visible = self.results.len().min(MAX_VISIBLE);
-        let panel_h = box_h + visible as f32 * row_h + 8.0;
+        // With no results we still draw a "No matching commands" line, so the
+        // panel needs a row's worth of height for it — otherwise the message
+        // falls outside the border.
+        let list_h = if self.results.is_empty() {
+            row_h
+        } else {
+            visible as f32 * row_h
+        };
+        let panel_h = box_h + list_h + 8.0;
 
         self.panel = Rect::from_xywh(x, y, width, panel_h);
         self.box_rect = Rect::from_xywh(x + 8.0, y + 8.0, width - 16.0, box_h - 8.0);
@@ -558,7 +566,10 @@ impl CommandPalette {
 
         if self.results.is_empty() {
             scene.text(
-                Point::new(x + 16.0, list_top + 8.0),
+                Point::new(
+                    x + 16.0,
+                    list_top + (row_h - fonts.line_height(self.font_size, FontId::Ui)) * 0.5,
+                ),
                 "No matching commands",
                 self.font_size,
                 p.text_muted,
@@ -628,6 +639,33 @@ mod tests {
         assert_eq!(command_for_chord("ctrl+f10").as_deref(), Some("ctx.panel"));
 
         set_active_context(None);
+    }
+
+    /// Regression: with no results the palette still draws a "No matching
+    /// commands" line, so its panel must be tall enough to enclose it.
+    #[test]
+    fn empty_palette_panel_encloses_the_no_matches_line() {
+        let Some(fonts) = crate::text::Fonts::load() else {
+            return;
+        };
+        let mut palette = CommandPalette::new();
+        palette.toggle(); // open
+        palette.query = "zzz-definitely-no-such-command-zzz".into();
+        palette.refresh();
+        assert!(palette.results.is_empty());
+
+        palette.compute(&fonts, Size::new(1000.0, 700.0));
+
+        let line_h = fonts.line_height(palette.font_size, FontId::Ui);
+        let search_box_h = line_h + 20.0;
+        let row_h = line_h + 12.0;
+        assert!(
+            palette.panel.height() >= search_box_h + row_h,
+            "panel ({}) must leave a row for the empty-state message",
+            palette.panel.height()
+        );
+        // ...and the search box must sit inside it.
+        assert!(palette.panel.bottom() > palette.box_rect.bottom());
     }
 
     #[test]

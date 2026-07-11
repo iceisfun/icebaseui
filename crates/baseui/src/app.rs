@@ -582,6 +582,9 @@ impl ApplicationHandler for App {
 
         if std::env::var_os("BASEUI_OPEN_PALETTE").is_some() {
             self.palette.toggle();
+            if let Ok(q) = std::env::var("BASEUI_PALETTE_QUERY") {
+                self.palette.on_text(&q);
+            }
         }
     }
 
